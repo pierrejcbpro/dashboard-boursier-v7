@@ -1,36 +1,39 @@
 # -*- coding: utf-8 -*-
-"""
-v7.4 — Détail Indice
-Affiche les moyennes MA20/50/120/240, la tendance CT & LT et la décision IA.
-"""
+import streamlit as st, pandas as pd, numpy as np
+from lib import members, fetch_prices, compute_metrics, style_variations, decision_label_combined, get_profile_params, load_profile, save_profile
 
-import streamlit as st, pandas as pd
-from lib import fetch_all_markets, trend_label_LT, decision_label_from_row
+st.set_page_config(page_title="Détail Indice", page_icon="🧩", layout="wide")
+st.title("🧩 Détail par indice — CT & LT")
 
-st.set_page_config(page_title="Détail Indice", page_icon="🏦", layout="wide")
-st.title("🏦 Détail par Indice — IA complète CT + LT")
+indice = st.selectbox("Indice", ["CAC 40"], index=0)
+profil = st.sidebar.radio("Profil IA", ["Prudent","Neutre","Agressif"], 
+                          index=["Prudent","Neutre","Agressif"].index(load_profile()))
+if st.sidebar.button("💾 Mémoriser le profil"): save_profile(profil); st.sidebar.success("Profil sauvegardé.")
 
-indice = st.selectbox("Choisis un indice :", ["CAC 40", "DAX", "NASDAQ 100"], index=0)
-markets = [(indice, None)]
-data = fetch_all_markets(markets, days_hist=360)
+mem = members(indice)
+if mem.empty:
+    st.warning("Impossible de charger la composition de l'indice."); st.stop()
 
-if data.empty:
-    st.warning("Aucune donnée disponible pour cet indice.")
-    st.stop()
+tickers = mem["ticker"].dropna().unique().tolist()
+px = fetch_prices(tickers, days=260)
+met = compute_metrics(px)
+df = met.merge(mem, left_on="Ticker", right_on="ticker", how="left")
 
-data["LT"] = data.apply(trend_label_LT, axis=1)
-data["Décision IA"] = data.apply(decision_label_from_row, axis=1)
+if df.empty:
+    st.warning("Données indisponibles."); st.stop()
 
-data = data.rename(columns={
-    "name": "Nom",
-    "Close": "Cours (€)",
-    "ct_trend_score": "Score CT",
-    "lt_trend_score": "Score LT"
-})
+# Décision combinée
+volmax = get_profile_params(profil)["vol_max"]
+df["Décision IA"] = df.apply(lambda r: decision_label_combined(r, held=False, vol_max=volmax), axis=1)
+df["LT"] = df["trend_lt"].apply(lambda v: "🌱" if v>0 else ("🌧" if v<0 else "⚖️"))
+df["Cours (€)"] = df["Close"].astype(float).round(2)
+for c in ["pct_1d","pct_7d","pct_30d"]: 
+    df[c] = (df[c]*100).round(2)
 
-st.markdown(f"### {indice} — Détail complet IA")
+cols = ["name","ticker","Cours (€)","pct_1d","pct_7d","pct_30d","LT","score_ia","Décision IA"]
+df = df[cols].rename(columns={"name":"Société","ticker":"Ticker","pct_1d":"1j %","pct_7d":"7j %","pct_30d":"30j %","score_ia":"Score IA"})
+
 st.dataframe(
-    data[["Nom", "Ticker", "Cours (€)", "MA20", "MA50", "MA120", "MA240", "Score CT", "Score LT", "LT", "Décision IA"]],
-    use_container_width=True,
-    hide_index=True
+    style_variations(df, ["1j %","7j %","30j %"]),
+    use_container_width=True, hide_index=True
 )
