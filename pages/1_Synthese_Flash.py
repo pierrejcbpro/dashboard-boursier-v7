@@ -2,11 +2,11 @@
 import streamlit as st, pandas as pd, numpy as np, altair as alt
 from lib import (
     fetch_all_markets, style_variations, load_profile, save_profile,
-    news_summary, select_top_actions, decision_label_from_row
+    news_summary, select_top_actions
 )
 
 st.set_page_config(page_title="Synthèse Flash", page_icon="⚡", layout="wide")
-st.title("⚡ Synthèse Flash — Vue IA long terme multi-marchés")
+st.title("⚡ Synthèse Flash — IA Hybride (CT + LT)")
 
 # ---------------- Sidebar ----------------
 periode = st.sidebar.radio("Période d’analyse", ["Jour","7 jours","30 jours"], index=0)
@@ -18,31 +18,44 @@ if st.sidebar.button("💾 Mémoriser le profil"):
     save_profile(profil)
     st.sidebar.success("Profil sauvegardé.")
 
-# ---------------- Marchés ----------------
-MARKETS = [("CAC 40", None), ("DAX", None), ("NASDAQ 100", None)]
-data = fetch_all_markets(MARKETS, days_hist=240)
+markets_selected = st.sidebar.multiselect(
+    "Indices analysés",
+    ["CAC 40","DAX","NASDAQ 100"],
+    default=["CAC 40","DAX","NASDAQ 100"]
+)
+
+# ---------------- Données marchés ----------------
+MARKETS = [(m, None) for m in markets_selected]
+data = fetch_all_markets(MARKETS, days_hist=360)
 
 if data.empty:
-    st.warning("Aucune donnée disponible (vérifie la connectivité).")
+    st.warning("Aucune donnée disponible (connectivité ou collecte indices).")
     st.stop()
 
 for c in ["pct_1d","pct_7d","pct_30d"]:
-    if c not in data.columns:
-        data[c] = np.nan
+    if c not in data.columns: data[c] = np.nan
 valid = data.dropna(subset=["Close"]).copy()
 
-# ---------------- Résumé global ----------------
+# ---------------- Résumé global multi-marchés ----------------
 avg = (valid[value_col].dropna().mean() * 100.0) if not valid.empty else np.nan
 up = int((valid[value_col] > 0).sum())
 down = int((valid[value_col] < 0).sum())
 
-st.markdown(f"### 🧭 Résumé global ({periode})")
+st.markdown(f"### 🧭 Résumé global ({periode}) — {', '.join(markets_selected)}")
 if np.isfinite(avg):
     st.markdown(f"**Variation moyenne : {avg:+.2f}%** — {up} hausses / {down} baisses")
 else:
     st.markdown("Variation indisponible pour cette période.")
 
-# ---------------- Top / Flop élargi ----------------
+disp = (valid[value_col].std() * 100.0) if not valid.empty else np.nan
+if np.isfinite(disp):
+    if disp < 1.0:   st.caption("Marché calme — consolidation technique.")
+    elif disp < 2.5: st.caption("Volatilité modérée — quelques leaders sectoriels.")
+    else:            st.caption("Marché dispersé — rotation marquée / effets macro.")
+
+st.divider()
+
+# ---------------- Top / Flop (10 + / -) ----------------
 st.subheader(f"🏆 Top 10 hausses & ⛔ Baisses — {periode}")
 
 def prep_table(df, asc=False, n=10):
@@ -54,16 +67,14 @@ def prep_table(df, asc=False, n=10):
     out.rename(columns={"name":"Société","Close":"Cours (€)"}, inplace=True)
     out["Variation %"] = (out[value_col] * 100).round(2)
     out["Cours (€)"] = out["Cours (€)"].round(2)
-
-    # 🌱 Indicateur LT
-    def trend_lt(row):
-        ma120, ma240, close = row["MA120"], row["MA240"], row["Cours (€)"]
-        if pd.isna(ma120) or pd.isna(ma240): return "⚖️"
-        if close > ma120 > ma240: return "🌱"
-        if close < ma120 < ma240: return "🌧"
+    # Emojis LT
+    def lt_emoji(r):
+        if pd.isna(r["MA120"]) or pd.isna(r["MA240"]): return ""
+        if r["Close"] > r["MA120"] > r["MA240"]: return "🌱"
+        if r["Close"] < r["MA120"] < r["MA240"]: return "🌧"
         return "⚖️"
-    out["Tendance LT"] = out.apply(trend_lt, axis=1)
-    return out[["Indice","Société","Ticker","Cours (€)","Variation %","Tendance LT"]]
+    out["LT"] = out.apply(lt_emoji, axis=1)
+    return out[["Indice","Société","Ticker","Cours (€)","Variation %","LT"]]
 
 col1, col2 = st.columns(2)
 with col1:
@@ -81,42 +92,41 @@ top_actions = select_top_actions(valid, profile=profil, n=10)
 if top_actions.empty:
     st.info("Aucune opportunité claire détectée aujourd’hui selon l’IA.")
 else:
-    st.dataframe(top_actions, use_container_width=True, hide_index=True)
+    # Mise en valeur des proximités
+    def color_proximity(v):
+        if pd.isna(v): return ""
+        if abs(v) <= 2: return "background-color:#e6f4ea; color:#0b8043"  # vert
+        if abs(v) <= 5: return "background-color:#fff8e1; color:#a67c00"  # jaune
+        return "background-color:#ffebee; color:#b71c1c"                   # rouge
+    st.dataframe(
+        top_actions.style.applymap(color_proximity, subset=["Proximité (%)"]),
+        use_container_width=True, hide_index=True
+    )
 
-# ---------------- Graphiques avec MA120/MA240 ----------------
-st.markdown("### 📊 Visualisation des tendances (avec MA120 & MA240)")
-
-def line_chart_with_ma(df, title):
-    if df.empty or "Date" not in df.columns:
-        st.caption("Pas assez d'historique.")
+# ---------------- Chart résumé tops ----------------
+st.markdown("### 📊 Visualisation rapide")
+def bar_chart(df, title):
+    if df.empty: 
+        st.caption("—")
         return
-    d = df.copy().dropna(subset=["Close"])
-    base = alt.Chart(d).mark_line(color="#3B82F6", strokeWidth=2).encode(
-        x=alt.X("Date:T", title=""),
-        y=alt.Y("Close:Q", title="Cours (€)"),
-        tooltip=["Date:T", alt.Tooltip("Close:Q", format=".2f")]
+    d = df.copy()
+    d["Label"] = d["Société"].astype(str) + " (" + d["Ticker"].astype(str) + ")"
+    chart = (
+        alt.Chart(d)
+        .mark_bar()
+        .encode(
+            x=alt.X("Label:N", sort="-y", title=""),
+            y=alt.Y("Variation %:Q", title="Variation (%)"),
+            color=alt.Color("Variation %:Q", scale=alt.Scale(scheme="redyellowgreen")),
+            tooltip=["Société","Ticker","Variation %","Cours (€)","Indice"]
+        )
+        .properties(height=320, title=title)
     )
-    ma120 = alt.Chart(d).mark_line(color="#fbbf24", strokeDash=[4,2]).encode(
-        x="Date:T", y="MA120:Q", tooltip=["MA120"]
-    )
-    ma240 = alt.Chart(d).mark_line(color="#ef4444", strokeDash=[4,2]).encode(
-        x="Date:T", y="MA240:Q", tooltip=["MA240"]
-    )
-    chart = (base + ma120 + ma240).properties(height=320, title=title)
     st.altair_chart(chart, use_container_width=True)
 
 col3, col4 = st.columns(2)
-with col3:
-    if not top.empty:
-        sample_ticker = top.iloc[0]["Ticker"]
-        sample_df = valid[valid["Ticker"] == sample_ticker]
-        line_chart_with_ma(sample_df, f"{sample_ticker} — Top hausses ({periode})")
-with col4:
-    if not flop.empty:
-        sample_ticker = flop.iloc[0]["Ticker"]
-        sample_df = valid[valid["Ticker"] == sample_ticker]
-        line_chart_with_ma(sample_df, f"{sample_ticker} — Top baisses ({periode})")
-
+with col3: bar_chart(top, f"Top 10 hausses ({periode})")
+with col4: bar_chart(flop, f"Top 10 baisses ({periode})")
 
 # ---------------- Actualités ----------------
 st.markdown("### 📰 Actualités principales")
@@ -134,3 +144,5 @@ if not flop.empty:
     st.markdown("**Baisses — explication probable :**")
     for _, r in flop.iterrows():
         st.markdown(f"- **{r['Société']} ({r['Ticker']})** : {short_news(r)}")
+
+st.divider()
