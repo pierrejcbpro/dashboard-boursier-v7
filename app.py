@@ -1,29 +1,97 @@
-
 # -*- coding: utf-8 -*-
+"""
+💹 Dash Boursier — Version 7.0
+Page d’accueil principale (Synthèse, Profil IA, Navigation)
+"""
+
 import streamlit as st
-from lib import load_profile, save_profile
+from lib import get_profile_params, load_profile, save_profile
 
-st.set_page_config(page_title="Dash Boursier v6.4 — Portefeuille multi‑appareils + Top10/10 + Mémoire", layout="wide", initial_sidebar_state="expanded")
+# ---------------------------------------------------------
+# 🧠 CONFIGURATION GÉNÉRALE
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="Dash Boursier v7.0",
+    page_icon="💹",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# ---- Sidebar (profil persistant) ----
-current = load_profile()
-if "profil" not in st.session_state:
-    st.session_state["profil"] = current
+# ---------------------------------------------------------
+# 🎛️ PROFIL IA — MÉMORISATION ET MISE À JOUR
+# ---------------------------------------------------------
+st.sidebar.title("🧭 Paramètres IA")
 
-st.sidebar.header("⚙️ Paramètres")
-choice = st.sidebar.radio("🎯 Profil IA", ["Agressif","Neutre","Prudent"],
-                          index={"Agressif":0,"Neutre":1,"Prudent":2}[st.session_state["profil"]], horizontal=True)
-if choice != st.session_state["profil"]:
-    st.session_state["profil"] = choice
-    save_profile(choice)
+profil_actuel = load_profile()
+profil = st.sidebar.radio(
+    "Sélectionne ton profil d’investisseur :",
+    ["Prudent", "Neutre", "Agressif"],
+    index=["Prudent", "Neutre", "Agressif"].index(profil_actuel)
+)
 
-st.sidebar.caption("⚠️ Données différées ~15 min (Yahoo Finance).")
-if st.sidebar.button("🔄 Recharger l'app"):
-    st.cache_data.clear(); st.rerun()
+if profil != profil_actuel:
+    save_profile(profil)
+    st.session_state["profil"] = profil
+    st.toast(f"Profil IA mis à jour → {profil}", icon="🤖")
 
-st.title("💹 Dash Boursier — v6.4")
-st.markdown("- **Profil IA** mémorisé entre sessions.
-- **Portefeuille** : export/import JSON, graph **%** et **€**.
-- **Synthèse Flash** : **Top 10 hausses** + **Top 10 baisses** (vertical) + **Cours**.
-- **Détail Indice** : **Cours** ajouté.
-- **Recherche** : mémorise **la dernière action** consultée.")
+params = get_profile_params(profil)
+
+# ---------------------------------------------------------
+# 🏠 PAGE D’ACCUEIL / SYNTHÈSE
+# ---------------------------------------------------------
+st.title("💹 Dash Boursier — v7.0")
+st.caption("🧠 Piloté par IA — Analyse multi-marchés, portefeuille dynamique et veille intelligente.")
+
+st.markdown("""
+### 📘 Nouveautés de la version 7.0
+- ⚡ **Synthèse Flash IA** : multi-marchés (🇫🇷 CAC40, 🇩🇪 DAX, 🇺🇸 NASDAQ, LS Exchange), Top/Flop + sélection IA TOP 10  
+- 💼 **Portefeuille IA** : calculs en € et %, surbrillance des zones d’achat (🟢⚠️🔴), répartition et benchmark  
+- 🔍 **Recherche universelle** : analyse MA20/MA50/ATR, IA complète, actualités datées, ajout direct au portefeuille  
+- 📊 **Synthèse globale IA** : détection automatique du momentum de marché (🟢 proche achat / ⚠️ neutre / 🔴 éloigné)  
+- 🧠 **Profil IA mémorisé** entre sessions (Prudent / Neutre / Agressif)
+- 🌙 Interface homogène, lisible jour/nuit
+""")
+
+st.divider()
+
+# ---------------------------------------------------------
+# ⚙️ PARAMÈTRES ACTUELS DU PROFIL
+# ---------------------------------------------------------
+st.subheader("⚙️ Paramètres IA actifs")
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Profil", profil)
+with col2:
+    st.metric("Volatilité max", f"{params['vol_max']*100:.1f}%")
+with col3:
+    st.metric("Horizon", params.get("horizon", "6–12 mois"))
+
+st.info(
+    f"🤖 **Mode IA : {profil}** — "
+    f"Analyse automatique adaptée à ton profil de risque (volatilité max {params['vol_max']*100:.1f}%)."
+)
+
+st.divider()
+
+# ---------------------------------------------------------
+# 🚀 NAVIGATION RAPIDE
+# ---------------------------------------------------------
+st.markdown("""
+### 🗺️ Navigation rapide
+
+- ⚡ **Synthèse Flash IA**  
+  Vue globale **multi-marchés** avec Top/Flop, sélection IA TOP 10 et actualités.
+
+- 💼 **Mon Portefeuille IA**  
+  Suivi interactif PEA/CTO, graphiques %, €, **benchmark** contre indices, et **répartition visuelle**.
+
+- 🔍 **Recherche universelle**  
+  Analyse complète d’une action : indicateurs techniques, **Synthèse IA**, actualités datées, ajout direct au portefeuille.
+
+- 📈 **(Bientôt)** Détail par Indice  
+  Vue IA dédiée pour CAC40, DAX, NASDAQ et S&P500 (TOP5 IA + leaders sectoriels).
+""")
+
+st.divider()
+st.success("✅ Application prête — choisis une page dans le menu à gauche pour démarrer ton analyse IA.")
