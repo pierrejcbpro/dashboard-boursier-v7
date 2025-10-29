@@ -166,39 +166,6 @@ def find_ticker_by_name(company_name: str, prefer_markets=("Paris","XETRA","Fran
     return [r for _, r in ranked]
 
 # =========================
-# MEMBRES INDICES (CAC40)
-# =========================
-@lru_cache(maxsize=32)
-def _read_tables(url: str):
-    html = requests.get(url, headers=UA, timeout=20).text
-    return pd.read_html(html)
-
-def _extract_name_ticker(tables):
-    table=None
-    for df in tables:
-        cols={str(c).lower() for c in df.columns}
-        if (("company" in cols or "name" in cols) and ("ticker" in cols or "symbol" in cols)):
-            table=df.copy(); break
-    if table is None: table=tables[0].copy()
-    table.rename(columns={c:str(c).lower() for c in table.columns}, inplace=True)
-    tcol=next((c for c in table.columns if "ticker" in c or "symbol" in c), table.columns[0])
-    ncol=next((c for c in table.columns if "company" in c or "name" in c), table.columns[1])
-    out=table[[tcol,ncol]].copy(); out.columns=["ticker","name"]
-    out["ticker"]=out["ticker"].astype(str).str.strip()
-    return out.dropna().drop_duplicates(subset=["ticker"])
-
-@lru_cache(maxsize=8)
-def members_cac40():
-    df=_extract_name_ticker(_read_tables("https://en.wikipedia.org/wiki/CAC_40"))
-    df["ticker"]=df["ticker"].apply(lambda x: x if "." in x else f"{x}.PA")
-    df["index"]="CAC 40"
-    return df
-
-def members(index_name: str):
-    if index_name=="CAC 40": return members_cac40()
-    return pd.DataFrame(columns=["ticker","name","index"])
-
-# =========================
 # PRIX (AJUSTÉS) & MÉTRIQUES (CT+LT)
 # =========================
 @lru_cache(maxsize=64)
@@ -286,12 +253,12 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df["MA240"]=df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(240,min_periods=30).mean())
 
     last=df.groupby("Ticker").tail(1)[["Ticker","Date","Close","ATR14","MA20","MA50","MA120","MA240"]].copy()
-    def gap(a,b): 
-        return (a/b-1) if (np.isfinite(a) and np.isfinite(b) and b!=0) else np.nan
-    last["gap20"]=gap(last["Close"], last["MA20"])
-    last["gap50"]=gap(last["Close"], last["MA50"])
-    last["gap120"]=gap(last["Close"], last["MA120"])
-    last["gap240"]=gap(last["Close"], last["MA240"])
+
+    # ✅ Correction vectorisée
+    last["gap20"]  = np.where(last["MA20"].notna()  & (last["MA20"]  != 0), last["Close"]/last["MA20"]  - 1, np.nan)
+    last["gap50"]  = np.where(last["MA50"].notna()  & (last["MA50"]  != 0), last["Close"]/last["MA50"]  - 1, np.nan)
+    last["gap120"] = np.where(last["MA120"].notna() & (last["MA120"] != 0), last["Close"]/last["MA120"] - 1, np.nan)
+    last["gap240"] = np.where(last["MA240"].notna() & (last["MA240"] != 0), last["Close"]/last["MA240"] - 1, np.nan)
 
     # Tendances (CT: MA20/50) (LT: MA120/240)
     last["trend_ct"]=0
@@ -305,194 +272,9 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     # Returns calendaire
     last=_calendar_returns(last, df)
 
-    # Scores
-    last["score_ct"]=(
-        0.6*(last["gap20"].fillna(0))+0.4*(last["gap50"].fillna(0))
-        + 0.2*(np.sign(last["trend_ct"].fillna(0)))
-    )
-    last["score_lt"]=(
-        0.6*(last["gap120"].fillna(0))+0.4*(last["gap240"].fillna(0))
-        + 0.3*(np.sign(last["trend_lt"].fillna(0)))
-    )
-    # Score IA global (pondère CT & LT)
-    last["score_ia"]= 0.45*last["score_ct"].fillna(0) + 0.55*last["score_lt"].fillna(0)
+    # Scores IA
+    last["score_ct"]=(0.6*last["gap20"].fillna(0)+0.4*last["gap50"].fillna(0)+0.2*np.sign(last["trend_ct"].fillna(0)))
+    last["score_lt"]=(0.6*last["gap120"].fillna(0)+0.4*last["gap240"].fillna(0)+0.3*np.sign(last["trend_lt"].fillna(0)))
+    last["score_ia"]=0.45*last["score_ct"].fillna(0)+0.55*last["score_lt"].fillna(0)
 
     return last.reset_index(drop=True)[cols]
-
-# =========================
-# NEWS (avec dates) & RÉSUMÉ
-# =========================
-@lru_cache(maxsize=256)
-def google_news_titles(query, lang="fr"):
-    url = f"https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl={lang}-{lang.upper()}&gl={lang.upper()}&ceid={lang.upper()}:{lang.upper()}"
-    try:
-        xml = requests.get(url, headers=UA, timeout=12).text
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(xml)
-        items = []
-        for it in root.iter("item"):
-            title = it.findtext("title") or ""
-            link  = it.findtext("link") or ""
-            pub   = it.findtext("{http://www.w3.org/2005/Atom}updated") or it.findtext("pubDate") or ""
-            items.append((title, link, pub))
-        return items[:10]
-    except Exception:
-        return []
-
-def filter_company_news(ticker, company_name, items):
-    if not items: return []
-    tkr=(ticker or "").lower()
-    name=(company_name or "").lower()
-    name_short = name.split(" ")[0] if name else ""
-    keep=[]
-    for title, link, pub in items:
-        tl=title.lower()
-        if (tkr and tkr in tl) or (name and name in tl) or (name_short and name_short in tl):
-            keep.append((title, link, pub))
-    return keep
-
-def news_summary(name, ticker, lang="fr"):
-    items = google_news_titles(f"{name} {ticker}", lang) or google_news_titles(name, lang)
-    items = filter_company_news(ticker, name, items)
-    titles = [t for t, _, _ in items]
-    if not titles:
-        return ("Pas d’actualité saillante — mouvement technique / macro.", 0.0, [])
-    POS=["résultats","bénéfice","contrat","relève","guidance","record","upgrade","partenariat","dividende","approbation"]
-    NEG=["profit warning","retard","procès","amende","downgrade","abaisse","enquête","rappel","départ","incident"]
-    scores=[]
-    for t in titles:
-        s=0.0
-        if SIA:
-            try: s=SIA.polarity_scores(t.lower())["compound"]
-            except Exception: s=0.0
-        tl=t.lower()
-        if any(k in tl for k in POS): s += 0.2
-        if any(k in tl for k in NEG): s -= 0.2
-        scores.append(s)
-    m=float(np.mean(scores)) if scores else 0.0
-    txt = ("Hausse soutenue par des nouvelles positives."
-           if m>0.15 else
-           "Baisse liée à des nouvelles défavorables."
-           if m<-0.15 else
-           "Actualité mitigée/neutre — mouvement surtout technique.")
-    return (txt, m, items)
-
-# =========================
-# DÉCISION IA & NIVEAUX
-# =========================
-def decision_label_from_row(row, held=False, vol_max=0.05):
-    """Décision court-terme (MA20/50 + ATR + PRU) — historique V6."""
-    px=float(row.get("Close", math.nan))
-    ma20=float(row.get("MA20", math.nan)) if pd.notna(row.get("MA20", math.nan)) else math.nan
-    ma50=float(row.get("MA50", math.nan)) if pd.notna(row.get("MA50", math.nan)) else math.nan
-    atr=float(row.get("ATR14", math.nan)) if pd.notna(row.get("ATR14", math.nan)) else math.nan
-    pru=float(row.get("PRU", math.nan)) if "PRU" in row else math.nan
-    if not math.isfinite(px): return "👁️ Surveiller"
-    vol=(atr/px) if (math.isfinite(atr) and px>0) else 0.03
-    trend=(1 if math.isfinite(ma20) and px>=ma20 else 0)+(1 if math.isfinite(ma50) and px>=ma50 else 0)
-    score=0.0
-    score+=0.5*(1 if trend==2 else 0 if trend==1 else -1)
-    if math.isfinite(pru) and pru>0: score+=0.2*(1 if px>pru*1.02 else -1 if px<pru*0.98 else 0)
-    score+=0.3*(-1 if vol>vol_max else 1)
-    if held:
-        if score>0.5: return "🟢 Acheter"
-        if score<-0.2: return "🔴 Vendre"
-        return "🟠 Garder"
-    else:
-        if score>0.3: return "🟢 Acheter"
-        if score<-0.2: return "🚫 Éviter"
-        return "👁️ Surveiller"
-
-def decision_label_combined(row, held=False, vol_max=0.05):
-    """Décision combinée CT+LT avec score_ia & trend_lt."""
-    base = decision_label_from_row(row, held=held, vol_max=vol_max)
-    lt = int(row.get("trend_lt", 0))
-    sia = float(row.get("score_ia", 0))
-    # renforcement LT
-    if "Acheter" in base and (lt>=1 and sia>0):
-        return "🟢 Acheter (LT ✅)"
-    if ("Garder" in base or "Surveiller" in base) and lt>=1 and sia>0.2:
-        return "🟢 Acheter / Renforcer (LT)"
-    if ("Acheter" in base) and lt==-1 and sia<-0.2:
-        return "🟠 Acheter (contre-tendance LT)"
-    return base
-
-def price_levels_from_row(row, profile="Neutre"):
-    p=get_profile_params(profile)
-    px=float(row.get("Close", math.nan))
-    ma20=float(row.get("MA20", math.nan)) if pd.notna(row.get("MA20", math.nan)) else math.nan
-    base=ma20 if math.isfinite(ma20) else px
-    if not math.isfinite(base): return {"entry":math.nan,"target":math.nan,"stop":math.nan}
-    return {"entry":round(base*p["entry_mult"],2),"target":round(base*p["target_mult"],2),"stop":round(base*p["stop_mult"],2)}
-
-# =========================
-# STYLE TABLEAUX (couleurs)
-# =========================
-def style_variations(df, cols):
-    def color_var(v):
-        if pd.isna(v): return ""
-        if v>0: return "background-color:#e8f5e9; color:#0b8f3a"
-        if v<0: return "background-color:#ffebee; color:#d5353a"
-        return "background-color:#e8f0fe; color:#1e88e5"
-    sty=df.style
-    for c in cols:
-        if c in df.columns: sty=sty.applymap(color_var, subset=[c])
-    return sty
-
-# Adaptation clair/sombre pour proximité (fond neutre)
-def proximity_style(val):
-    if pd.isna(val): return ""
-    if abs(val) <= 2:  return "background-color:rgba(16,185,129,.18); color:#10B981;"   # vert doux
-    if abs(val) <= 5:  return "background-color:rgba(245,158,11,.16); color:#F59E0B;"   # ambre
-    return "background-color:rgba(239,68,68,.16); color:#EF4444;"                        # rouge
-
-def highlight_near_entry_row(row):
-    if pd.notna(row.get("Proximité (%)")) and abs(row["Proximité (%)"]) <= 2:
-        return ["background-color:rgba(250,204,21,.18); font-weight:600"] * len(row)     # jaune doux
-    return [""] * len(row)
-
-# =========================
-# SÉLECTION IA (TOP N)
-# =========================
-def select_top_actions(df, profile="Neutre", n=10):
-    if df is None or df.empty: return pd.DataFrame()
-    p = get_profile_params(profile); vol_max = p["vol_max"]
-    data = df.copy()
-    need = ["Close","ATR14","trend_ct","trend_lt","score_ct","score_lt","score_ia","MA20","MA50","MA120","MA240"]
-    for c in need:
-        if c not in data.columns: data[c]=np.nan
-    data = data.dropna(subset=["Close"])
-    data["Volatilité"] = data["ATR14"]/data["Close"]
-    # Filtre de qualité : LT haussier ou neutre et volatilité sous 1.5*seuil
-    data = data[(data["Volatilité"] <= vol_max*1.5)]
-    # Tri par score IA global
-    data = data.sort_values("score_ia", ascending=False)
-
-    def _levels(r):
-        lev = price_levels_from_row(r, profile)
-        prox = ((r["Close"]/lev["entry"])-1)*100 if (lev["entry"] and lev["entry"]>0) else np.nan
-        pot_eur = (lev["target"]-lev["entry"]) if (lev["entry"] and lev["target"]) else np.nan
-        return pd.Series({
-            "Entrée (€)": lev["entry"], "Objectif (€)": lev["target"], "Stop (€)": lev["stop"],
-            "Potentiel (€)": pot_eur, "Proximité (%)": prox
-        })
-
-    top = pd.concat([data.reset_index(drop=True), data.apply(_levels, axis=1)], axis=1).head(n)
-    keep = ["Ticker","Close","MA20","MA50","MA120","MA240","trend_ct","trend_lt","score_ct","score_lt","score_ia",
-            "Entrée (€)","Objectif (€)","Stop (€)","Potentiel (€)","Proximité (%)"]
-    for k in keep:
-        if k not in top.columns: top[k]=np.nan
-    top = top[keep]
-    top.rename(columns={"Ticker":"Symbole","Close":"Cours (€)","trend_ct":"Tendance CT","trend_lt":"Tendance LT",
-                        "score_ct":"Score CT","score_lt":"Score LT","score_ia":"Score IA"}, inplace=True)
-    # format
-    for c in ["Cours (€)","Entrée (€)","Objectif (€)","Stop (€)","Potentiel (€)"]:
-        top[c]=top[c].astype(float).round(2)
-    for c in ["Score CT","Score LT","Score IA","Proximité (%)"]:
-        top[c]=top[c].astype(float).round(2)
-    # emojis tendance LT
-    def emo(v): return "🌱" if v>0 else ("🌧" if v<0 else "⚖️")
-    top["LT"] = top["Tendance LT"].apply(emo)
-    # prêt à entrer
-    top["Signal Entrée"] = top["Proximité (%)"].apply(lambda p: "🟢" if (pd.notna(p) and abs(p)<=2) else ("⚠️" if (pd.notna(p) and abs(p)<=5) else "🔴"))
-    return top.reset_index(drop=True)
