@@ -82,3 +82,33 @@ st.markdown(f"""
 **Gain total :** {total_gain:+.2f} € ({perf_pct:+.2f}%)  
 **Portefeuille global :** {total_val:.2f} €
 """)
+st.divider()
+st.subheader("📈 Visualisation long terme de vos positions")
+
+# Sélection d'une action à afficher
+tick_sel = st.selectbox("Choisir une valeur à afficher :", out["Ticker"].unique())
+
+if tick_sel:
+    d = hist_full[hist_full["Ticker"] == tick_sel].copy().dropna(subset=["Close"])
+    if d.empty:
+        st.warning("Pas assez d'historique pour cette valeur.")
+    else:
+        base = alt.Chart(d).mark_line(color="#3B82F6", strokeWidth=2).encode(
+            x=alt.X("Date:T", title="Date"),
+            y=alt.Y("Close:Q", title="Cours (€)"),
+            tooltip=["Date:T", alt.Tooltip("Close:Q", format=".2f")]
+        )
+        ma120 = alt.Chart(d).mark_line(color="#fbbf24", strokeDash=[4,2]).encode(
+            x="Date:T", y="MA120:Q"
+        )
+        ma240 = alt.Chart(d).mark_line(color="#ef4444", strokeDash=[4,2]).encode(
+            x="Date:T", y="MA240:Q"
+        )
+
+        chart = (base + ma120 + ma240).properties(
+            height=400, title=f"Tendance long terme — {tick_sel}"
+        )
+        st.altair_chart(chart, use_container_width=True)
+
+        # Légende explicative
+        st.caption("🟦 Cours | 🟠 MA120 (6 mois) | 🔴 MA240 (12 mois)")
