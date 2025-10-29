@@ -83,6 +83,41 @@ if top_actions.empty:
 else:
     st.dataframe(top_actions, use_container_width=True, hide_index=True)
 
+# ---------------- Graphiques avec MA120/MA240 ----------------
+st.markdown("### 📊 Visualisation des tendances (avec MA120 & MA240)")
+
+def line_chart_with_ma(df, title):
+    if df.empty or "Date" not in df.columns:
+        st.caption("Pas assez d'historique.")
+        return
+    d = df.copy().dropna(subset=["Close"])
+    base = alt.Chart(d).mark_line(color="#3B82F6", strokeWidth=2).encode(
+        x=alt.X("Date:T", title=""),
+        y=alt.Y("Close:Q", title="Cours (€)"),
+        tooltip=["Date:T", alt.Tooltip("Close:Q", format=".2f")]
+    )
+    ma120 = alt.Chart(d).mark_line(color="#fbbf24", strokeDash=[4,2]).encode(
+        x="Date:T", y="MA120:Q", tooltip=["MA120"]
+    )
+    ma240 = alt.Chart(d).mark_line(color="#ef4444", strokeDash=[4,2]).encode(
+        x="Date:T", y="MA240:Q", tooltip=["MA240"]
+    )
+    chart = (base + ma120 + ma240).properties(height=320, title=title)
+    st.altair_chart(chart, use_container_width=True)
+
+col3, col4 = st.columns(2)
+with col3:
+    if not top.empty:
+        sample_ticker = top.iloc[0]["Ticker"]
+        sample_df = valid[valid["Ticker"] == sample_ticker]
+        line_chart_with_ma(sample_df, f"{sample_ticker} — Top hausses ({periode})")
+with col4:
+    if not flop.empty:
+        sample_ticker = flop.iloc[0]["Ticker"]
+        sample_df = valid[valid["Ticker"] == sample_ticker]
+        line_chart_with_ma(sample_df, f"{sample_ticker} — Top baisses ({periode})")
+
+
 # ---------------- Actualités ----------------
 st.markdown("### 📰 Actualités principales")
 def short_news(row):
