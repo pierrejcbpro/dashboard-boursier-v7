@@ -45,8 +45,14 @@ with cols[1]:
         st.success("♻️ Réinitialisé.")
         st.rerun()
 with cols[2]:
-    st.download_button("⬇️ Exporter JSON", json.dumps(pf.to_dict(orient="records"), ensure_ascii=False, indent=2),
-                       file_name="suivi_virtuel.json", mime="application/json", key="exp_pf")
+st.download_button(
+    "⬇️ Exporter JSON",
+    json.dumps(pf.to_dict(orient="records"), ensure_ascii=False, indent=2, default=str),
+    file_name="suivi_virtuel.json",
+    mime="application/json",
+    key="exp_pf"
+)
+
 with cols[3]:
     up = st.file_uploader("📥 Importer JSON", type=["json"], label_visibility="collapsed", key="imp_pf")
     if up:
