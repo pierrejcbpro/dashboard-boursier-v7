@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-v7.6 — Suivi Virtuel IA
+v7.7 — Suivi Virtuel IA
 Simulateur de portefeuille IA (papier trading)
 - Ajout automatique depuis Synthèse Flash
 - Montant et frais personnalisés
 - Calcul rendement net estimé et P&L %
 - Comparaison CAC 40
+- Corrigé JSON + compatibilité totale Streamlit Cloud
 """
 
 import os, json, pandas as pd, numpy as np, streamlit as st, altair as alt
@@ -18,19 +19,18 @@ st.title("💰 Suivi Virtuel — Portefeuille d’investissement IA")
 DATA_PATH = "data/suivi_virtuel.json"
 os.makedirs("data", exist_ok=True)
 
+BASE_COLUMNS = [
+    "Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
+    "Qté","Montant Initial (€)","Valeur (€)","P&L (%)","Rendement Net Estimé (%)"
+]
+
 if not os.path.exists(DATA_PATH):
-    pd.DataFrame(columns=[
-        "Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
-        "Qté","Montant Initial (€)","Valeur (€)","P&L (%)","Rendement Net Estimé (%)"
-    ]).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
+    pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
 
 try:
     pf = pd.read_json(DATA_PATH)
 except Exception:
-    pf = pd.DataFrame(columns=[
-        "Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
-        "Qté","Montant Initial (€)","Valeur (€)","P&L (%)","Rendement Net Estimé (%)"
-    ])
+    pf = pd.DataFrame(columns=BASE_COLUMNS)
 
 # ---------------- BARRE D’ACTIONS ----------------
 cols = st.columns(4)
@@ -40,24 +40,29 @@ with cols[0]:
         st.success("✅ Sauvegardé.")
 with cols[1]:
     if st.button("🗑 Réinitialiser", key="reset_pf"):
-        os.remove(DATA_PATH)
-        pd.DataFrame(columns=pf.columns).to_json(DATA_PATH, orient="records", indent=2)
+        try:
+            os.remove(DATA_PATH)
+        except FileNotFoundError:
+            pass
+        pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2)
         st.success("♻️ Réinitialisé.")
         st.rerun()
 with cols[2]:
-st.download_button(
-    "⬇️ Exporter JSON",
-    json.dumps(pf.to_dict(orient="records"), ensure_ascii=False, indent=2, default=str),
-    file_name="suivi_virtuel.json",
-    mime="application/json",
-    key="exp_pf"
-)
-
+    st.download_button(
+        "⬇️ Exporter JSON",
+        json.dumps(pf.to_dict(orient="records"), ensure_ascii=False, indent=2, default=str),
+        file_name="suivi_virtuel.json",
+        mime="application/json",
+        key="exp_pf"
+    )
 with cols[3]:
     up = st.file_uploader("📥 Importer JSON", type=["json"], label_visibility="collapsed", key="imp_pf")
     if up:
         try:
             imp = pd.DataFrame(json.load(up))
+            for c in BASE_COLUMNS:
+                if c not in imp.columns:
+                    imp[c] = np.nan
             imp.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
             st.success("✅ Importé."); st.rerun()
         except Exception as e:
@@ -74,6 +79,7 @@ with st.expander("➕ Ajouter une ligne manuellement"):
         montant = st.number_input("Montant à investir (€)", min_value=10.0, step=10.0, value=20.0)
     with c3:
         cours = st.number_input("Cours actuel (€)", min_value=0.01, step=0.01)
+
     if st.button("Ajouter au suivi virtuel", key="add_manual"):
         if ticker and montant and cours:
             soc = company_name_from_ticker(ticker)
@@ -111,19 +117,23 @@ for _, r in merged.iterrows():
     soc = r.get("Société") or company_name_from_ticker(ticker)
     entry = r.get("Entrée (€)", np.nan)
     qte = r.get("Qté", 0)
+    montant_init = r.get("Montant Initial (€)", np.nan)
     if not np.isfinite(px) or not np.isfinite(entry) or entry == 0:
         continue
+
     val = px * qte
     pnl = ((px / entry) - 1) * 100
-    rend_est = ((r["Objectif (€)"] / entry) - 1) * 100 - (2 / entry)  # 1€ achat + 1€ vente
+    rend_est = ((r["Objectif (€)"] / entry) - 1) * 100 - ((2 / montant_init) * 100)  # 2€ de frais
+
     rows.append({
-        "Société": soc, "Ticker": ticker,
+        "Société": soc,
+        "Ticker": ticker,
         "Cours (€)": round(px, 2),
         "Entrée (€)": round(entry, 2),
         "Objectif (€)": round(r["Objectif (€)"], 2),
         "Stop (€)": round(r["Stop (€)"], 2),
         "Qté": round(qte, 2),
-        "Montant Initial (€)": round(r["Montant Initial (€)"], 2),
+        "Montant Initial (€)": round(montant_init, 2),
         "Valeur (€)": round(val, 2),
         "P&L (%)": round(pnl, 2),
         "Rendement Net Estimé (%)": round(rend_est, 2)
@@ -148,7 +158,7 @@ st.dataframe(
     use_container_width=True, hide_index=True
 )
 
-# ---------------- SYNTHÈSE & BENCHMARK ----------------
+# ---------------- SYNTHÈSE ----------------
 tot_val = out["Valeur (€)"].sum()
 tot_init = out["Montant Initial (€)"].sum()
 perf = ((tot_val / tot_init) - 1) * 100 if tot_init else 0
