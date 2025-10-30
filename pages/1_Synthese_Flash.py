@@ -250,18 +250,42 @@ if not edited.empty:
 else:
     st.caption("Ajoute une ou plusieurs lignes ci-dessus pour simuler ton investissement.")
 
-# --- Ajout au suivi virtuel
-if st.button("➕ Ajouter ces idées au suivi virtuel"):
-    save_path = "data/suivi_virtuel.json"
-    import os, json
-    os.makedirs("data", exist_ok=True)
+# --- Ajout au suivi virtuel (corrigé)
+save_path = "data/suivi_virtuel.json"
+os.makedirs("data", exist_ok=True)
+
+# Bouton ajouté en dessous du tableau, bien après l’édition
+add_to_virtual = st.button("💹 ➕ Ajouter la sélection au suivi virtuel")
+
+if add_to_virtual:
     try:
-        old = pd.read_json(save_path) if os.path.exists(save_path) else pd.DataFrame()
-    except Exception:
-        old = pd.DataFrame()
-    merged = pd.concat([old, edited], ignore_index=True)
-    merged.to_json(save_path, orient="records", indent=2, force_ascii=False)
-    st.success("💹 Idées ajoutées au suivi virtuel avec succès !")
+        # Récupère le contenu courant du data_editor (et non le cache précédent)
+        edited_df = st.session_state.get("micro_invest_editor")
+        if edited_df is None or edited_df.empty:
+            st.warning("Aucune ligne sélectionnée à ajouter.")
+        else:
+            # Conversion en DataFrame propre
+            df_add = pd.DataFrame(edited_df)
+
+            # Chargement existant
+            if os.path.exists(save_path):
+                try:
+                    old = pd.read_json(save_path)
+                except Exception:
+                    old = pd.DataFrame()
+            else:
+                old = pd.DataFrame()
+
+            # Fusion propre sans doublons sur Ticker + Entrée
+            merged = pd.concat([old, df_add], ignore_index=True)
+            merged = merged.drop_duplicates(subset=["Ticker", "Entrée (€)"], keep="last")
+
+            # Sauvegarde
+            merged.to_json(save_path, orient="records", indent=2, force_ascii=False)
+            st.success(f"💾 {len(df_add)} ligne(s) ajoutée(s) au suivi virtuel avec succès !")
+    except Exception as e:
+        st.error(f"Erreur lors de l’ajout : {e}")
+
 
 
 # ---------------- Charts ----------------
