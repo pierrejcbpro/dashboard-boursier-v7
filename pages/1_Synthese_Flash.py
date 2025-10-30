@@ -208,6 +208,7 @@ with col4: bar_chart(flop, f"Top 10 baisses ({periode})")
 
 
 st.divider()
+
 # =========================
 # 💸 Onglet — Portefeuille virtuel (suivi)
 # =========================
