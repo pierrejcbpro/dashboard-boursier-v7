@@ -162,9 +162,9 @@ else:
     # --- Décision IA simulée si manquante
     if "Décision IA" not in df.columns:
         def decision_from_ma(r):
-            if r["MA20"] > r["MA50"] and r["MA120"] > r["MA240"]: return "Acheter"
-            if r["MA20"] < r["MA50"] and r["MA120"] < r["MA240"]: return "Vendre"
-            return "Surveiller"
+            if r["MA20"] > r["MA50"] and r["MA120"] > r["MA240"]: return "🟢 Acheter"
+            if r["MA20"] < r["MA50"] and r["MA120"] < r["MA240"]: return "🔴 Vendre"
+            return "⚠️ Surveiller"
         df["Décision IA"] = df.apply(decision_from_ma, axis=1)
 
     # --- Proximité + signal emoji
