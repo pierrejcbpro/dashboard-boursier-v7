@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-v7.6 — Mon Portefeuille IA enrichi
-Basé sur ta version 6.9 :
-- Structure 100 % identique
-- Ajout MA120 / MA240 et Score IA combiné
-- Tendance long terme 🌱 / 🌧 / ⚖️
-- Compatible lib v7.6
+v7.6 — Mon Portefeuille IA stricte
+Structure 100 % identique à la V6.9 :
+- Même interface et fonctionnalités
+- Utilise la logique IA stricte de lib.py (decision_label_from_row → stricte)
 """
 
 import os, json, numpy as np, pandas as pd, altair as alt, streamlit as st
@@ -17,9 +15,9 @@ from lib import (
 
 # --- Config
 st.set_page_config(page_title="Mon Portefeuille", page_icon="💼", layout="wide")
-st.title("💼 Mon Portefeuille — PEA & CTO (IA long terme)")
+st.title("💼 Mon Portefeuille — PEA & CTO (IA stricte long terme)")
 
-# --- Choix période + benchmark (pour le graphique comparatif)
+# --- Choix période + benchmark
 periode = st.sidebar.radio("Période (graphique)", ["1 jour", "7 jours", "30 jours"], index=0)
 days_map = {"1 jour": 2, "7 jours": 10, "30 jours": 35}
 days_hist = days_map[periode]
@@ -161,7 +159,7 @@ with c2:
 if edited.empty:
     st.info("Ajoute une action pour commencer."); st.stop()
 
-# --- Analyse IA (240j pour LT)
+# --- Analyse IA stricte (240j pour LT)
 tickers = edited["Ticker"].dropna().unique().tolist()
 hist_full = fetch_prices(tickers, days=240)
 met = compute_metrics(hist_full)
@@ -180,7 +178,7 @@ for _, r in merged.iterrows():
     val = px * qty if np.isfinite(px) else np.nan
     gain_eur = (px - pru) * qty if np.isfinite(px) and np.isfinite(pru) else np.nan
     perf = ((px / pru) - 1) * 100 if (np.isfinite(px) and np.isfinite(pru) and pru > 0) else np.nan
-    dec = decision_label_from_row(r, held=True, vol_max=volmax)
+    dec = decision_label_from_row(r, held=True, vol_max=volmax)  # ← IA stricte
 
     # 🔹 Volatilité (MA20/MA50)
     ma20, ma50 = float(r.get("MA20", np.nan)), float(r.get("MA50", np.nan))
