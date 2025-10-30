@@ -120,8 +120,7 @@ if top_actions.empty:
 else:
     df = top_actions.copy()
 
-    # --- Normalisation et nettoyage complet
-    # 1️⃣ Assure la présence de Société / Ticker / Indice / Cours (€)
+    # --- Normalisation des colonnes
     rename_map = {
         "symbol": "Ticker", "ticker": "Ticker", "Symbole": "Ticker",
         "name": "Société", "shortname": "Société",
@@ -135,19 +134,14 @@ else:
     if "Ticker" not in df.columns:
         df["Ticker"] = df.index.astype(str)
 
-    # Si aucune colonne Indice trouvée
-    if "Indice" not in df.columns:
-        for k in ["index", "Market", "Indice"]:
-            if k in df.columns:
-                df["Indice"] = df[k]
-                break
-        else:
-            df["Indice"] = "—"
+    # ✅ Récupère les indices depuis les données complètes “valid”
+    idx_map = valid[["Ticker", "Indice"]].drop_duplicates()
+    df = df.merge(idx_map, on="Ticker", how="left")
+    df["Indice"] = df["Indice"].fillna("—")
 
-    # Nettoyage None / NaN texte
+    # Nettoyage des valeurs texte
     df["Société"] = df["Société"].fillna("—").astype(str)
     df["Ticker"] = df["Ticker"].fillna("—").astype(str)
-    df["Indice"] = df["Indice"].fillna("—").astype(str)
 
     # --- Ajoute les colonnes techniques manquantes
     for ma in ["MA20","MA50","MA120","MA240"]:
@@ -219,6 +213,7 @@ else:
         f"📊 **Moyenne Score IA :** {df['Score IA'].mean():.1f}/100 — "
         f"**Actions proches des entrées idéales :** {(df['Signal Entrée']=='🟢').sum()} / {len(df)}"
     )
+
 
 
 st.divider()
