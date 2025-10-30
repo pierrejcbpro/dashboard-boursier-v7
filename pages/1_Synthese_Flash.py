@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-v7.7 — Synthèse Flash IA (interactive)
-Basée sur ta v6.9 enrichie :
-- 🧠 Score IA combiné (MA20/50 + MA120/240)
-- 🌱 Tendance LT (MA120 vs MA240)
-- 🚀 Sélection IA Top 10
-- 💸 Simulateur micro-investissement interactif (injection de capital)
-- Compatible lib v7.6
+v7.8 — Synthèse Flash IA (interactive)
+Base: v7.7 qui te convenait, avec correctifs mineurs :
+- ✅ Pas de KeyError si colonnes manquantes (tolérance)
+- ✅ 'Ticker' toujours présent (fallback 'Symbole')
+- ✅ Ajout au suivi virtuel SÉLECTIF via cases à cocher (pas de session_state piégeux)
+- ✅ JSON propre (list[dict]) + dossier data auto
 """
 
-import streamlit as st, pandas as pd, numpy as np, altair as alt, os
+import os, json
+import streamlit as st, pandas as pd, numpy as np, altair as alt
 from lib import (
     fetch_all_markets, style_variations, load_profile, save_profile,
     news_summary, select_top_actions
@@ -52,7 +52,8 @@ if data.empty:
     st.warning("Aucune donnée disponible (vérifie la connectivité ou ta sélection de marchés).")
     st.stop()
 
-for c in ["pct_1d", "pct_7d", "pct_30d"]:
+# Tolérance colonnes
+for c in ["pct_1d", "pct_7d", "pct_30d", "Close", "Ticker", "name", "Indice", "MA120", "MA240", "lt_trend_score"]:
     if c not in data.columns:
         data[c] = np.nan
 
@@ -131,19 +132,24 @@ with col2:
 
 st.divider()
 
-# ---------------- SÉLECTION IA ----------------
+# ---------------- SÉLECTION IA (Top 10) ----------------
 st.subheader("🚀 Sélection IA — Opportunités idéales (TOP 10)")
 top_actions = select_top_actions(valid, profile=profil, n=10, include_proximity=True)
 
 if top_actions.empty:
     st.info("Aucune opportunité IA détectée aujourd’hui selon ton profil.")
 else:
+    # Harmonise nom des colonnes (Ticker présent même si lib retourne 'Symbole')
+    if "Ticker" not in top_actions.columns and "Symbole" in top_actions.columns:
+        top_actions["Ticker"] = top_actions["Symbole"]
+
     def proximity_marker(v):
         if pd.isna(v): return "⚪"
         if abs(v) <= 2: return "🟢"
         elif abs(v) <= 5: return "⚠️"
         else: return "🔴"
-    top_actions["Signal Entrée"] = top_actions["Proximité (%)"].apply(proximity_marker)
+    if "Proximité (%)" in top_actions.columns:
+        top_actions["Signal Entrée"] = top_actions["Proximité (%)"].apply(proximity_marker)
 
     def style_prox(v):
         if pd.isna(v): return ""
@@ -151,40 +157,52 @@ else:
         if abs(v) <= 5:  return "background-color:#fff8e1; color:#a67c00;"
         return "background-color:#ffebee; color:#b71c1c;"
 
-    styled = (
-        top_actions.style
-        .applymap(style_prox, subset=["Proximité (%)"])
-    )
+    show_cols = []
+    for c in ["Société","name","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)","Proximité (%)","Signal Entrée","IA_Score","Trend ST","Trend LT","MA20","MA50","MA120","MA240","Signal","Indice"]:
+        if c in top_actions.columns:
+            show_cols.append(c)
+    # alias 'name' -> 'Société' si besoin, sans casser le style
+    show = top_actions.copy()
+    if "Société" not in show.columns and "name" in show.columns:
+        show.rename(columns={"name":"Société"}, inplace=True)
+
+    styled = show[show_cols].style
+    if "Proximité (%)" in show.columns:
+        styled = styled.applymap(style_prox, subset=["Proximité (%)"])
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
 # ---------------- Injection IA interactive ----------------
 st.divider()
 st.subheader("💸 Injection IA — Simulateur micro-investissement")
 
-st.caption("Analyse IA pour des tickets entre 7 et 30 jours avec frais inclus (1€ entrée + 1€ sortie).")
+st.caption("Analyse IA pour des tickets 7–30 jours avec frais inclus (1€ entrée + 1€ sortie).")
 
 invest_amount = st.number_input("💰 Montant d’investissement par action (€)", min_value=5.0, max_value=500.0, step=5.0, value=20.0)
 fee_in = 1.0
 fee_out = 1.0
 
-# Base IA
+# Base IA (pré-remplissage)
 rows = []
 if not top_actions.empty:
     for _, r in top_actions.head(15).iterrows():
         entry = float(r.get("Entrée (€)", np.nan))
         target = float(r.get("Objectif (€)", np.nan))
         stop = float(r.get("Stop (€)", np.nan))
-        score = float(r.get("Score IA", 50))
+        score = float(r.get("IA_Score", 50))
+        name = r.get("Société") or r.get("name")
+        tkr = r.get("Ticker") or r.get("Symbole")
         if not np.isfinite(entry) or not np.isfinite(target) or entry <= 0:
             continue
-        buy_price = entry + (fee_in / (invest_amount / entry))
-        shares = invest_amount / buy_price
+        # prix d’achat “effectif” avec frais d’entrée dilués
+        shares = invest_amount / (entry + fee_in / max(shares:= (invest_amount/entry), 1e-8))  # robustesse
+        buy_price = invest_amount / shares
         brut_gain = (target - buy_price) * shares
         net_gain = brut_gain - fee_out
         net_return_pct = (net_gain / invest_amount) * 100
         rows.append({
-            "Société": r.get("Société") or r.get("name"),
-            "Ticker": r.get("Ticker"),
+            "Ajouter": False,
+            "Société": name,
+            "Ticker": tkr,
             "Entrée (€)": round(entry, 2),
             "Objectif (€)": round(target, 2),
             "Stop (€)": round(stop, 2),
@@ -195,9 +213,9 @@ if not top_actions.empty:
 
 df_inject = pd.DataFrame(rows)
 if df_inject.empty:
-    df_inject = pd.DataFrame(columns=["Société", "Ticker", "Entrée (€)", "Objectif (€)", "Stop (€)", "Score IA", "Durée visée", "Rendement net estimé (%)"])
+    df_inject = pd.DataFrame(columns=["Ajouter","Société","Ticker","Entrée (€)","Objectif (€)","Stop (€)","Score IA","Durée visée","Rendement net estimé (%)"])
 
-st.markdown("### ➕ Ajouter ou modifier tes propres lignes")
+# Éditeur interactif (cases à cocher pour ajout sélectif)
 edited = st.data_editor(
     df_inject,
     use_container_width=True,
@@ -205,6 +223,7 @@ edited = st.data_editor(
     hide_index=True,
     key="micro_invest_editor",
     column_config={
+        "Ajouter": st.column_config.CheckboxColumn("Ajouter"),
         "Société": st.column_config.TextColumn("Société"),
         "Ticker": st.column_config.TextColumn("Ticker"),
         "Entrée (€)": st.column_config.NumberColumn("Entrée (€)", format="%.2f"),
@@ -216,21 +235,27 @@ edited = st.data_editor(
     },
 )
 
-if not edited.empty:
-    calc = []
-    for _, r in edited.iterrows():
+# Recalcule le rendement net estimé selon le montant saisi
+def recompute_returns(df, invest_amount, fee_in, fee_out):
+    out = df.copy()
+    res = []
+    for _, r in out.iterrows():
         entry = float(r.get("Entrée (€)", np.nan))
         target = float(r.get("Objectif (€)", np.nan))
         if not np.isfinite(entry) or not np.isfinite(target) or entry <= 0:
-            calc.append(np.nan)
-            continue
-        buy_price = entry + (fee_in / (invest_amount / entry))
+            res.append(np.nan); continue
+        # dilution frais entrée + frais sortie
+        shares_approx = invest_amount / max(entry, 1e-8)
+        buy_price = entry + fee_in / max(shares_approx, 1e-8)
         shares = invest_amount / buy_price
         brut_gain = (target - buy_price) * shares
         net_gain = brut_gain - fee_out
-        net_return_pct = (net_gain / invest_amount) * 100
-        calc.append(round(net_return_pct, 2))
-    edited["Rendement net estimé (%)"] = calc
+        res.append(round((net_gain / invest_amount) * 100, 2))
+    out["Rendement net estimé (%)"] = res
+    return out
+
+if not edited.empty:
+    edited = recompute_returns(edited, invest_amount, fee_in, fee_out)
 
     def style_gain(v):
         if pd.isna(v): return ""
@@ -241,52 +266,57 @@ if not edited.empty:
     styled = edited.style.applymap(style_gain, subset=["Rendement net estimé (%)"])
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
-    best = edited.loc[edited["Rendement net estimé (%)"].idxmax()]
-    st.success(
-        f"💡 **Idée optimale : {best['Société']} ({best['Ticker']})** — "
-        f"rendement net estimé **{best['Rendement net estimé (%)']:+.2f}%** "
-        f"pour un ticket de **{invest_amount:.0f} €** sur {best['Durée visée']}."
-    )
+    if edited["Rendement net estimé (%)"].notna().any():
+        best = edited.loc[edited["Rendement net estimé (%)"].idxmax()]
+        st.success(
+            f"💡 **Idée optimale : {best.get('Société','?')} ({best.get('Ticker','?')})** — "
+            f"rendement net estimé **{best.get('Rendement net estimé (%)',0):+.2f}%** "
+            f"pour un ticket de **{invest_amount:.0f} €** sur {best.get('Durée visée','7–30 j')}."
+        )
 else:
     st.caption("Ajoute une ou plusieurs lignes ci-dessus pour simuler ton investissement.")
 
-# --- Ajout au suivi virtuel (corrigé)
+# --- Ajout au suivi virtuel (sélectif via 'Ajouter' = True)
 save_path = "data/suivi_virtuel.json"
 os.makedirs("data", exist_ok=True)
 
-# Bouton ajouté en dessous du tableau, bien après l’édition
-add_to_virtual = st.button("💹 ➕ Ajouter la sélection au suivi virtuel")
-
-if add_to_virtual:
+if st.button("💹 ➕ Ajouter la sélection au suivi virtuel"):
     try:
-        # Récupère le contenu courant du data_editor (et non le cache précédent)
-        edited_df = st.session_state.get("micro_invest_editor")
-        if edited_df is None or edited_df.empty:
-            st.warning("Aucune ligne sélectionnée à ajouter.")
+        to_add = edited[edited.get("Ajouter", False) == True].copy() if not edited.empty else pd.DataFrame()
+        if to_add.empty:
+            st.warning("Aucune ligne cochée dans la colonne “Ajouter”.")
         else:
-            # Conversion en DataFrame propre
-            df_add = pd.DataFrame(edited_df)
+            # Nettoyage + sérialisation
+            export_cols = ["Société","Ticker","Entrée (€)","Objectif (€)","Stop (€)","Score IA","Durée visée","Rendement net estimé (%)"]
+            for c in export_cols:
+                if c not in to_add.columns: to_add[c] = None
+            new_items = to_add[export_cols].to_dict(orient="records")
 
-            # Chargement existant
-            if os.path.exists(save_path):
-                try:
-                    old = pd.read_json(save_path)
-                except Exception:
-                    old = pd.DataFrame()
-            else:
-                old = pd.DataFrame()
+            # Charge JSON existant (liste)
+            try:
+                if os.path.exists(save_path):
+                    with open(save_path, "r", encoding="utf-8") as f:
+                        cur = json.load(f)
+                        if not isinstance(cur, list): cur = []
+                else:
+                    cur = []
+            except Exception:
+                cur = []
 
-            # Fusion propre sans doublons sur Ticker + Entrée
-            merged = pd.concat([old, df_add], ignore_index=True)
-            merged = merged.drop_duplicates(subset=["Ticker", "Entrée (€)"], keep="last")
+            # Ajoute & dédoublonne sur (Ticker, Entrée)
+            cur.extend(new_items)
+            seen = set()
+            dedup = []
+            for it in cur:
+                key = (str(it.get("Ticker")), str(it.get("Entrée (€)")))
+                if key in seen: continue
+                seen.add(key); dedup.append(it)
 
-            # Sauvegarde
-            merged.to_json(save_path, orient="records", indent=2, force_ascii=False)
-            st.success(f"💾 {len(df_add)} ligne(s) ajoutée(s) au suivi virtuel avec succès !")
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(dedup, f, ensure_ascii=False, indent=2)
+            st.success(f"💾 {len(new_items)} ligne(s) ajoutée(s) au suivi virtuel.")
     except Exception as e:
         st.error(f"Erreur lors de l’ajout : {e}")
-
-
 
 # ---------------- Charts ----------------
 st.divider()
@@ -295,6 +325,9 @@ def bar_chart(df, title):
     if df.empty:
         st.caption("—"); return
     d = df.copy()
+    # Assure les colonnes attendues
+    for c in ["Société","Ticker","Variation %","Cours (€)","Indice","LT","IA_Score"]:
+        if c not in d.columns: d[c] = np.nan
     d["Label"] = d["Société"].astype(str) + " (" + d["Ticker"].astype(str) + ")"
     chart = (
         alt.Chart(d)
