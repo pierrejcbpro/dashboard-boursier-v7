@@ -250,39 +250,48 @@ if not edited.empty:
 else:
     st.caption("Ajoute une ou plusieurs lignes ci-dessus pour simuler ton investissement.")
 
-# --- Ajout au suivi virtuel (corrigé)
-save_path = "data/suivi_virtuel.json"
+# --- Ajout au suivi virtuel (avec protection robuste)
+DATA_PATH = "data/suivi_virtuel.json"
 os.makedirs("data", exist_ok=True)
 
-# Bouton ajouté en dessous du tableau, bien après l’édition
-add_to_virtual = st.button("💹 ➕ Ajouter la sélection au suivi virtuel")
+try:
+    pf = pd.read_json(DATA_PATH)
+    if not isinstance(pf, pd.DataFrame):
+        pf = pd.DataFrame()
+except Exception:
+    pf = pd.DataFrame()
 
-if add_to_virtual:
+# Création si fichier vide
+if pf.empty or len(pf.columns) == 0:
+    pf = pd.DataFrame(columns=[
+        "Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
+        "Rendement net estimé (%)","Date ajout"
+    ])
+
+# Calcul du rendement net estimé (avec 1€ de frais entrée/sortie)
+invest = st.number_input("💰 Montant d’investissement (€)", min_value=10.0, value=20.0, step=10.0)
+entry = levels["entry"]
+target = levels["target"]
+if np.isfinite(entry) and np.isfinite(target) and entry > 0:
+    brut = (target - entry) / entry * 100
+    net = brut - (2 / invest * 100)  # 1€ entrée + 1€ sortie
+else:
+    net = np.nan
+
+if st.button("💹 Ajouter au suivi virtuel"):
     try:
-        # Récupère le contenu courant du data_editor (et non le cache précédent)
-        edited_df = st.session_state.get("micro_invest_editor")
-        if edited_df is None or edited_df.empty:
-            st.warning("Aucune ligne sélectionnée à ajouter.")
-        else:
-            # Conversion en DataFrame propre
-            df_add = pd.DataFrame(edited_df)
-
-            # Chargement existant
-            if os.path.exists(save_path):
-                try:
-                    old = pd.read_json(save_path)
-                except Exception:
-                    old = pd.DataFrame()
-            else:
-                old = pd.DataFrame()
-
-            # Fusion propre sans doublons sur Ticker + Entrée
-            merged = pd.concat([old, df_add], ignore_index=True)
-            merged = merged.drop_duplicates(subset=["Ticker", "Entrée (€)"], keep="last")
-
-            # Sauvegarde
-            merged.to_json(save_path, orient="records", indent=2, force_ascii=False)
-            st.success(f"💾 {len(df_add)} ligne(s) ajoutée(s) au suivi virtuel avec succès !")
+        new_row = pd.DataFrame([{
+            "Ticker": symbol.upper(),
+            "Cours (€)": row["Close"],
+            "Entrée (€)": entry,
+            "Objectif (€)": target,
+            "Stop (€)": levels["stop"],
+            "Rendement net estimé (%)": round(net, 2),
+            "Date ajout": pd.Timestamp.now().strftime("%Y-%m-%d")
+        }])
+        pf = pd.concat([pf, new_row], ignore_index=True)
+        pf.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
+        st.success(f"✅ {symbol} ajouté au suivi virtuel ({net:+.2f}% net estimé).")
     except Exception as e:
         st.error(f"Erreur lors de l’ajout : {e}")
 
