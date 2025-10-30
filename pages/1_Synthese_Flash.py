@@ -206,24 +206,7 @@ col3, col4 = st.columns(2)
 with col3: bar_chart(top, f"Top 10 hausses ({periode})")
 with col4: bar_chart(flop, f"Top 10 baisses ({periode})")
 
-# ---------------- 📰 Actualités ----------------
-st.markdown("### 📰 Actualités principales")
-def short_news(row):
-    nm = str(row.get("Société") or "")
-    tk = str(row.get("Ticker") or "")
-    txt, score, items = news_summary(nm, tk, lang="fr")
-    return txt
 
-if not top.empty:
-    st.markdown("**Top hausses — explication probable :**")
-    for _, r in top.iterrows():
-        st.markdown(f"- **{r['Société']} ({r['Ticker']})** : {short_news(r)}")
-if not flop.empty:
-    st.markdown("**Baisses — explication probable :**")
-    for _, r in flop.iterrows():
-        st.markdown(f"- **{r['Société']} ({r['Ticker']})** : {short_news(r)}")
-
-st.divider()
 
 # =========================
 # 💸 Onglet — Portefeuille virtuel (suivi)
@@ -423,6 +406,25 @@ else:
                         st.success(f"Ligne retirée : {it.get('name')} ({del_sel})")
                         time.sleep(0.6)
                         st.rerun()
+
+# ---------------- 📰 Actualités ----------------
+st.markdown("### 📰 Actualités principales")
+def short_news(row):
+    nm = str(row.get("Société") or "")
+    tk = str(row.get("Ticker") or "")
+    txt, score, items = news_summary(nm, tk, lang="fr")
+    return txt
+
+if not top.empty:
+    st.markdown("**Top hausses — explication probable :**")
+    for _, r in top.iterrows():
+        st.markdown(f"- **{r['Société']} ({r['Ticker']})** : {short_news(r)}")
+if not flop.empty:
+    st.markdown("**Baisses — explication probable :**")
+    for _, r in flop.iterrows():
+        st.markdown(f"- **{r['Société']} ({r['Ticker']})** : {short_news(r)}")
+
+st.divider()
 
 # Pied de page
 st.divider()
