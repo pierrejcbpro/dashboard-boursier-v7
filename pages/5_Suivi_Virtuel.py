@@ -105,7 +105,17 @@ if pf.empty:
     st.info("Aucune position virtuelle. Ajoute une ligne ci-dessus ou depuis Synthèse Flash.")
     st.stop()
 
-tickers = pf["Ticker"].dropna().unique().tolist()
+# ✅ Sécurisation du schéma de colonnes
+for col in BASE_COLUMNS:
+    if col not in pf.columns:
+        pf[col] = np.nan
+
+# Si le fichier JSON est vide ou sans tickers, on arrête proprement
+if "Ticker" not in pf.columns or pf["Ticker"].dropna().empty:
+    st.info("Aucune ligne valide (Ticker manquant). Ajoute une valeur pour commencer.")
+    st.stop()
+
+tickers = pf["Ticker"].dropna().astype(str).unique().tolist()
 hist = fetch_prices(tickers, days=90)
 met = compute_metrics(hist)
 merged = pf.merge(met, on="Ticker", how="left")
