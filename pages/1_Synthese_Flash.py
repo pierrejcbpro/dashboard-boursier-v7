@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-v7.10.5 — Synthèse Flash IA stable
-✅ Corrige KeyError sur top_actions (colonnes manquantes)
-✅ Corrige tous les risques de duplication / plantage Streamlit
-✅ Stable sur Pandas 2.x / PyArrow 17+
+v7.10.6 — Synthèse Flash IA stable
+✅ Corrige affichage du tableau Sélection IA (Ticker, Nom, Signal)
+✅ Restaure cohérence et formats Streamlit
+✅ Compatible lib v7.6 et portefeuille virtuel
 """
 
 import os, json
@@ -109,35 +109,45 @@ st.divider()
 # 🚀 SÉLECTION IA — Opportunités
 # =======================================================
 st.subheader("🚀 Sélection IA — Opportunités idéales (TOP 10)")
-top_actions = select_top_actions(valid, profile=profil, n=10, include_proximity=True)
 
+top_actions = select_top_actions(valid, profile=profil, n=10, include_proximity=True)
 if top_actions.empty:
     st.info("Aucune opportunité IA disponible.")
 else:
-    # ✅ Création sécurisée des colonnes manquantes
-    needed_cols = ["name","Ticker","Cours (€)","Entrée (€)","Objectif (€)",
-                   "Stop (€)","Proximité (%)","Signal Entrée"]
-    for c in needed_cols:
-        if c not in top_actions.columns:
-            top_actions[c] = np.nan
+    df = top_actions.copy()
 
-    # Ajoute Signal Entrée si absent
-    if "Signal Entrée" not in top_actions.columns:
+    # -- Normalisation des noms de colonnes
+    rename_map = {
+        "symbol": "Ticker",
+        "ticker": "Ticker",
+        "name": "Société",
+        "shortname": "Société",
+    }
+    for old, new in rename_map.items():
+        if old in df.columns and new not in df.columns:
+            df[new] = df[old]
+
+    # -- Ajout des colonnes manquantes
+    for c in ["Société", "Ticker", "Cours (€)", "Entrée (€)", "Objectif (€)", "Stop (€)", "Proximité (%)"]:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    # -- Calcul du Signal Entrée si absent
+    if "Signal Entrée" not in df.columns:
         def marker(v):
             if pd.isna(v): return "⚪"
             if abs(v) <= 2: return "🟢"
             elif abs(v) <= 5: return "⚠️"
             return "🔴"
-        top_actions["Signal Entrée"] = top_actions["Proximité (%)"].apply(marker)
+        df["Signal Entrée"] = df["Proximité (%)"].apply(marker)
 
-    # ✅ Nettoie doublons éventuels
-    top_actions = top_actions.loc[:, ~top_actions.columns.duplicated()]
+    # -- Nettoyage des doublons
+    df = df.loc[:, ~df.columns.duplicated()]
 
-    st.dataframe(
-        top_actions[needed_cols].round(2),
-        use_container_width=True,
-        hide_index=True
-    )
+    # -- Sélection et affichage
+    display_cols = ["Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)",
+                    "Stop (€)","Proximité (%)","Signal Entrée"]
+    st.dataframe(df[display_cols].round(2), use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -161,76 +171,39 @@ def save_suivi(lst):
     with open(SUIVI_PATH, "w", encoding="utf-8") as f:
         json.dump(lst, f, ensure_ascii=False, indent=2)
 
-montant = st.number_input("💶 Montant par ligne (€)",5.0,step=5.0,value=20.0)
-horizon = st.selectbox("Horizon cible",["1 semaine","2 semaines","1 mois"],index=2)
+montant = st.number_input("💶 Montant par ligne (€)", 5.0, step=5.0, value=20.0)
+horizon = st.selectbox("Horizon cible", ["1 semaine","2 semaines","1 mois"], index=2)
 st.caption("1€ de frais entrée + 1€ de sortie inclus.")
 
 if not top_actions.empty:
-    for i,r in top_actions.iterrows():
-        c1,c2,c3,c4,c5,c6=st.columns([3,1,1,1,1,1])
-        c1.markdown(f"**{r.get('name','?')}** ({r.get('Ticker','?')})")
+    for i, r in df.iterrows():
+        c1, c2, c3, c4, c5, c6 = st.columns([3,1,1,1,1,1])
+        c1.markdown(f"**{r.get('Société','?')}** ({r.get('Ticker','?')})")
         c2.markdown(f"{r.get('Cours (€)',np.nan):.2f} €")
         c3.markdown(f"🎯 {r.get('Objectif (€)',np.nan):.2f} €")
         c4.markdown(f"🛑 {r.get('Stop (€)',np.nan):.2f} €")
-        prox=r.get('Proximité (%)',np.nan)
+        prox = r.get('Proximité (%)', np.nan)
         c5.markdown(f"{prox:+.2f}%" if pd.notna(prox) else "—")
         if c6.button("➕ Ajouter", key=f"a{i}"):
-            items=load_suivi()
-            entry=float(r.get("Entrée (€)") or r.get("Cours (€)") or np.nan)
-            target=float(r.get("Objectif (€)") or np.nan)
-            stop=float(r.get("Stop (€)") or np.nan)
-            qty=(montant-1)/entry if entry>0 else 0
-            rend=((target-entry)/entry*100-2/entry*100) if np.isfinite(entry) and np.isfinite(target) else np.nan
+            items = load_suivi()
+            entry = float(r.get("Entrée (€)") or r.get("Cours (€)") or np.nan)
+            target = float(r.get("Objectif (€)") or np.nan)
+            stop = float(r.get("Stop (€)") or np.nan)
+            qty = (montant - 1) / entry if entry > 0 else 0
+            rend = ((target - entry) / entry * 100 - 2 / entry * 100) if np.isfinite(entry) and np.isfinite(target) else np.nan
             items.append({
-                "ticker":r.get("Ticker"),"name":r.get("name"),
-                "entry":entry,"target":target,"stop":stop,
-                "amount":montant,"qty":qty,"rendement_estime_pct":rend,
-                "added_at":datetime.now(timezone.utc).isoformat(),"horizon":horizon
+                "ticker": r.get("Ticker"),
+                "name": r.get("Société"),
+                "entry": entry,
+                "target": target,
+                "stop": stop,
+                "amount": montant,
+                "qty": qty,
+                "rendement_estime_pct": rend,
+                "added_at": datetime.now(timezone.utc).isoformat(),
+                "horizon": horizon
             })
             save_suivi(items)
-            st.success(f"Ajouté : {r.get('name')} ({r.get('Ticker')})")
+            st.success(f"Ajouté : {r.get('Société')} ({r.get('Ticker')})")
 
 st.divider()
-
-# =======================================================
-# 📊 SUIVI VIRTUEL — AFFICHAGE
-# =======================================================
-st.subheader("📊 Suivi virtuel & comparaison CAC40")
-
-items=load_suivi()
-if not items:
-    st.caption("Aucune ligne.")
-    st.stop()
-
-df=pd.DataFrame(items)
-tickers=df["ticker"].unique().tolist()
-px=fetch_prices(tickers+["^FCHI"],days=60)
-if px.empty or "Date" not in px.columns:
-    st.warning("Pas assez d’historique.")
-    st.stop()
-
-last=px.sort_values("Date").groupby("Ticker").tail(1)[["Ticker","Close"]].rename(columns={"Close":"last_close"})
-df=df.merge(last,left_on="ticker",right_on="Ticker",how="left")
-
-def perf(r):
-    if not np.isfinite(r["last_close"]): return pd.Series({"val":np.nan,"pnl":np.nan})
-    val=r["qty"]*r["last_close"]-1
-    pnl=(val-r["amount"])/r["amount"]*100 if r["amount"]>0 else np.nan
-    return pd.Series({"val":val,"pnl":pnl})
-df=pd.concat([df,df.apply(perf,axis=1)],axis=1)
-
-# Nettoie doublons
-df=df.loc[:,~df.columns.duplicated()]
-
-show=df.rename(columns={
-    "name":"Société","ticker":"Ticker","last_close":"Cours actuel (€)",
-    "entry":"Entrée (€)","target":"Objectif (€)","stop":"Stop (€)",
-    "rendement_estime_pct":"Rendement estimé (%)","qty":"Qté",
-    "amount":"Montant initial (€)","val":"Valeur actuelle (€)","pnl":"P&L (%)"
-})
-cols=["Société","Ticker","Cours actuel (€)","Entrée (€)","Objectif (€)","Stop (€)",
-      "Rendement estimé (%)","Qté","Montant initial (€)","Valeur actuelle (€)","P&L (%)"]
-for c in cols:
-    if c not in show.columns: show[c]=np.nan
-
-st.dataframe(show[cols].round(2), use_container_width=True, hide_index=True)
