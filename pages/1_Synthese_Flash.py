@@ -250,6 +250,20 @@ if not edited.empty:
 else:
     st.caption("Ajoute une ou plusieurs lignes ci-dessus pour simuler ton investissement.")
 
+# --- Ajout au suivi virtuel
+if st.button("➕ Ajouter ces idées au suivi virtuel"):
+    save_path = "data/suivi_virtuel.json"
+    import os, json
+    os.makedirs("data", exist_ok=True)
+    try:
+        old = pd.read_json(save_path) if os.path.exists(save_path) else pd.DataFrame()
+    except Exception:
+        old = pd.DataFrame()
+    merged = pd.concat([old, edited], ignore_index=True)
+    merged.to_json(save_path, orient="records", indent=2, force_ascii=False)
+    st.success("💹 Idées ajoutées au suivi virtuel avec succès !")
+
+
 # ---------------- Charts ----------------
 st.divider()
 st.markdown("### 📊 Visualisation rapide")
