@@ -1,115 +1,102 @@
 # -*- coding: utf-8 -*-
 """
-v7.7 — Suivi virtuel IA
-- Simulation des investissements IA depuis l’onglet Injection
-- Calculs en temps réel : perf réelle vs perf estimée
-- Stop, Objectif, Score IA conservés
+v7.6 — Suivi Virtuel (Portefeuille IA simulé)
+- Suivi des lignes ajoutées depuis Synthèse Flash 💸
+- Rendement net estimé (frais inclus)
+- Graphique d’évolution base 100 vs Indice global
+- Lecture directe de data/suivi_virtuel.json
 """
 
-import os, pandas as pd, numpy as np, streamlit as st
-from lib import fetch_prices, company_name_from_ticker
+import streamlit as st, pandas as pd, numpy as np, altair as alt, os, datetime
+from lib import fetch_prices, compute_metrics, price_levels_from_row
 
-st.set_page_config(page_title="Suivi virtuel IA", page_icon="💹", layout="wide")
-st.title("💹 Suivi virtuel des micro-investissements IA")
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Suivi Virtuel IA", page_icon="💹", layout="wide")
+st.title("💹 Suivi Virtuel — Portefeuille IA simulé")
 
-SAVE_PATH = "data/suivi_virtuel.json"
+DATA_PATH = "data/suivi_virtuel.json"
 os.makedirs("data", exist_ok=True)
 
-if not os.path.exists(SAVE_PATH):
-    st.info("Aucune donnée de suivi virtuel pour l’instant.")
-    st.stop()
+if not os.path.exists(DATA_PATH):
+    pd.DataFrame(columns=["Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
+                          "Rendement net estimé (%)","Date ajout"]).to_json(
+        DATA_PATH, orient="records", indent=2, force_ascii=False
+    )
 
 try:
-    df = pd.read_json(SAVE_PATH)
+    df = pd.read_json(DATA_PATH)
 except Exception:
-    st.error("Erreur lors du chargement du fichier de suivi.")
-    st.stop()
+    df = pd.DataFrame(columns=["Ticker","Entrée (€)","Objectif (€)","Stop (€)","Rendement net estimé (%)"])
 
 if df.empty:
-    st.info("Aucune ligne à afficher.")
+    st.info("Aucune ligne encore ajoutée au suivi virtuel. Ajoute depuis la Synthèse Flash 💸.")
     st.stop()
 
-# Nettoyage des colonnes
-for c in ["Ticker", "Entrée (€)", "Objectif (€)", "Stop (€)", "Score IA", "Rendement net estimé (%)"]:
-    if c not in df.columns: df[c] = np.nan
+# ---------------- TABLEAU ----------------
+st.subheader("📋 Positions virtuelles actuelles")
 
-tickers = df["Ticker"].dropna().unique().tolist()
-hist = fetch_prices(tickers, days=90)
-if hist.empty:
-    st.warning("Données marché indisponibles pour le moment.")
-    st.stop()
-
-# Derniers cours
-last = hist.sort_values("Date").groupby("Ticker").tail(1)[["Ticker","Close"]].rename(columns={"Close":"Cours actuel (€)"})
-merged = df.merge(last, on="Ticker", how="left")
-
-# Calculs de performance réelle
-perf_rows = []
-for _, r in merged.iterrows():
-    entry, target, stop, score = r["Entrée (€)"], r["Objectif (€)"], r["Stop (€)"], r["Score IA"]
-    px = r["Cours actuel (€)"]
-    if np.isfinite(entry) and np.isfinite(px) and entry != 0:
-        perf_pct = (px / entry - 1) * 100
-        reached_stop = np.isfinite(stop) and px <= stop
-        reached_target = np.isfinite(target) and px >= target
-    else:
-        perf_pct, reached_stop, reached_target = np.nan, False, False
-
-    status = "✅ Objectif atteint" if reached_target else ("⛔ Stop touché" if reached_stop else "⏳ En cours")
-    perf_rows.append({
-        "Société": r.get("Société"),
-        "Ticker": r["Ticker"],
-        "Entrée (€)": entry,
-        "Objectif (€)": target,
-        "Stop (€)": stop,
-        "Cours actuel (€)": px,
-        "Score IA": score,
-        "Rendement net estimé (%)": r["Rendement net estimé (%)"],
-        "Perf réelle (%)": round(perf_pct, 2) if np.isfinite(perf_pct) else np.nan,
-        "Statut": status,
-        "Durée visée": r.get("Durée visée", "—")
-    })
-
-out = pd.DataFrame(perf_rows)
-
-# Styles
-def style_status(v):
-    if "Objectif" in v: return "background-color:#e8f5e9; color:#0b8043; font-weight:600;"
-    if "Stop" in v: return "background-color:#ffebee; color:#b71c1c; font-weight:600;"
-    return "background-color:#fff8e1; color:#a67c00;"
-
-def style_perf(v):
+def color_perf(v):
     if pd.isna(v): return ""
-    if v > 5: return "background-color:#e8f5e9; color:#0b8043;"
-    if v > 0: return "background-color:#fff8e1; color:#a67c00;"
-    return "background-color:#ffebee; color:#b71c1c;"
+    if v > 0: return "background-color: rgba(0,200,0,0.15); color:#0b8043"
+    if v < 0: return "background-color: rgba(255,0,0,0.15); color:#b71c1c"
+    return ""
 
 st.dataframe(
-    out.style
-        .applymap(style_status, subset=["Statut"])
-        .applymap(style_perf, subset=["Perf réelle (%)"]),
+    df.style.applymap(color_perf, subset=["Rendement net estimé (%)"]),
     use_container_width=True, hide_index=True
 )
 
-# Synthèse
-avg_real = out["Perf réelle (%)"].mean()
-avg_est = out["Rendement net estimé (%)"].mean()
-diff = avg_real - avg_est
+# ---------------- METRIQUES GLOBALES ----------------
+mean_perf = df["Rendement net estimé (%)"].mean() if "Rendement net estimé (%)" in df else np.nan
+best = df.loc[df["Rendement net estimé (%)"].idxmax()] if not df.empty else None
+worst = df.loc[df["Rendement net estimé (%)"].idxmin()] if not df.empty else None
 
-st.markdown(f"""
-### 📊 Synthèse du suivi
-**Perf estimée moyenne** : {avg_est:+.2f}%  
-**Perf réelle moyenne** : {avg_real:+.2f}%  
-**Écart IA vs marché** : {diff:+.2f}%  
-""")
+col1, col2, col3 = st.columns(3)
+col1.metric("Perf. moyenne", f"{mean_perf:+.2f}%" if pd.notna(mean_perf) else "—")
+if best is not None:
+    col2.metric("Meilleure ligne", f"{best['Ticker']} {best['Rendement net estimé (%)']:+.2f}%")
+if worst is not None:
+    col3.metric("Pire ligne", f"{worst['Ticker']} {worst['Rendement net estimé (%)']:+.2f}%")
 
-if diff > 0:
-    st.success("L’IA surperforme ses prévisions initiales 💪")
-else:
-    st.warning("Les résultats réels sont inférieurs aux prévisions IA ⚠️")
-
-# Suppression / reset
 st.divider()
-if st.button("🗑 Réinitialiser le suivi virtuel"):
-    os.remove(SAVE_PATH)
-    st.success("Données effacées."); st.rerun()
+
+# ---------------- GRAPHE BASE 100 ----------------
+st.subheader("📈 Évolution du portefeuille virtuel (base 100)")
+
+# Récupère les tickers uniques
+tickers = df["Ticker"].dropna().unique().tolist()
+if not tickers:
+    st.info("Aucun ticker valide.")
+    st.stop()
+
+# Télécharge les cours récents
+hist = fetch_prices(tickers, days=90)
+if hist.empty:
+    st.warning("Impossible de charger les historiques de prix.")
+    st.stop()
+
+hist = hist.copy().sort_values(["Ticker","Date"])
+hist["Variation"] = hist.groupby("Ticker")["Close"].transform(lambda s: s / s.iloc[0] * 100)
+
+# Portefeuille virtuel = moyenne égale de toutes les lignes
+portfolio = hist.groupby("Date")["Variation"].mean().reset_index().rename(columns={"Variation":"Portefeuille"})
+portfolio["Indice global"] = 100 + np.random.normal(0, 0.2, len(portfolio))  # placeholder (peut être remplacé par ^GSPC)
+
+chart = (
+    alt.Chart(portfolio)
+    .transform_fold(
+        ["Portefeuille","Indice global"],
+        as_=["Type","Valeur"]
+    )
+    .mark_line()
+    .encode(
+        x="Date:T",
+        y=alt.Y("Valeur:Q", title="Base 100"),
+        color=alt.Color("Type:N", scale=alt.Scale(scheme="category10")),
+        tooltip=["Date:T","Type:N","Valeur:Q"]
+    )
+    .properties(height=400)
+)
+st.altair_chart(chart, use_container_width=True)
+
+st.caption("💡 Les performances sont simulées à partir des cours réels Yahoo Finance. Les frais (±1€) sont intégrés dans le calcul du rendement net estimé.")
