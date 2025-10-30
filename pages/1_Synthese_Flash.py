@@ -197,6 +197,81 @@ else:
 
 st.divider()
 
+# ---------------- Injection IA — Idées micro-investissement (20 €)
+st.divider()
+st.subheader("💸 Injection IA — Idées micro-investissement (20 € chacun)")
+
+if top_actions.empty:
+    st.caption("Aucune opportunité IA détectée pour injection immédiate.")
+else:
+    invest_amount = 20.0
+    fee_in = 1.0
+    fee_out = 1.0
+    total_fee = fee_in + fee_out
+
+    micro_rows = []
+    for _, r in top_actions.head(15).iterrows():
+        entry = float(r.get("Entrée (€)", np.nan))
+        target = float(r.get("Objectif (€)", np.nan))
+        stop = float(r.get("Stop (€)", np.nan))
+        score = float(r.get("Score IA", 50))
+
+        # prix d'achat ajusté par frais
+        if not np.isfinite(entry) or not np.isfinite(target) or entry <= 0:
+            continue
+        buy_price = entry + (fee_in / (invest_amount / entry))  # dilue 1€ dans le ticket
+        shares = invest_amount / buy_price
+        sell_price = target
+        brut_gain = (sell_price - buy_price) * shares
+        net_gain = brut_gain - fee_out
+        net_return_pct = (net_gain / invest_amount) * 100
+
+        micro_rows.append({
+            "Société": r.get("Société") or r.get("name"),
+            "Ticker": r.get("Ticker"),
+            "Entrée (€)": round(entry, 2),
+            "Objectif (€)": round(target, 2),
+            "Stop (€)": round(stop, 2),
+            "Score IA": round(score, 1),
+            "Frais totaux (€)": total_fee,
+            "Rendement net estimé (%)": round(net_return_pct, 2),
+            "Durée visée": "7–30 j",
+            "Décision IA": r.get("Signal") or "Acheter"
+        })
+
+    df_inject = pd.DataFrame(micro_rows)
+    if df_inject.empty:
+        st.info("Aucune action éligible à un micro-investissement rentable actuellement.")
+    else:
+        df_inject = df_inject.sort_values("Rendement net estimé (%)", ascending=False).head(5)
+
+        def style_gain(v):
+            if pd.isna(v): return ""
+            if v > 5: return "background-color:#e8f5e9; color:#0b8043; font-weight:600;"
+            if v > 0: return "background-color:#fff8e1; color:#a67c00;"
+            return "background-color:#ffebee; color:#b71c1c;"
+
+        st.dataframe(
+            df_inject.style
+                .applymap(style_gain, subset=["Rendement net estimé (%)"])
+                .format({
+                    "Entrée (€)":"{:.2f}",
+                    "Objectif (€)":"{:.2f}",
+                    "Stop (€)":"{:.2f}",
+                    "Frais totaux (€)":"{:.0f}",
+                    "Rendement net estimé (%)":"{:.2f}",
+                    "Score IA":"{:.1f}"
+                }),
+            use_container_width=True, hide_index=True
+        )
+
+        best = df_inject.iloc[0]
+        st.success(
+            f"👉 **Meilleure idée IA : {best['Société']} ({best['Ticker']})** — "
+            f"rendement net estimé **{best['Rendement net estimé (%)']:+.2f}%** sur 7–30 jours."
+        )
+
+
 # ---------------- Charts simples ----------------
 st.markdown("### 📊 Visualisation rapide")
 def bar_chart(df, title):
