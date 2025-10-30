@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-v7.10.2 — Synthèse Flash IA complète
-- Basée sur v6.9 + IA combinée MA20/50/120/240
-- Ajout d’un module de suivi virtuel d’investissement 💸
-- Colonne Rendement estimé (%) + P&L réel
-- Corrige les doublons de colonnes Streamlit
+v7.10.3 — Synthèse Flash IA complète
+- Correction ParserBase (pandas ≥ 2.2)
+- Portefeuille virtuel + comparaison CAC40
+- Rendement estimé (%) + P&L (%) + Score IA
 """
 
 import os, json
@@ -122,7 +121,7 @@ with col2:
 st.divider()
 
 # =======================================================
-# SÉLECTION IA — OPPORTUNITÉS
+# SÉLECTION IA
 # =======================================================
 st.subheader("🚀 Sélection IA — Opportunités idéales (TOP 10)")
 top_actions = select_top_actions(valid, profile=profil, n=10, include_proximity=True)
@@ -130,37 +129,24 @@ top_actions = select_top_actions(valid, profile=profil, n=10, include_proximity=
 if top_actions.empty:
     st.info("Aucune opportunité détectée aujourd’hui selon l’IA.")
 else:
-    # Ajout du signal de proximité
     def proximity_marker(v):
-        if pd.isna(v):
-            return "⚪"
-        if abs(v) <= 2:
-            return "🟢"
-        elif abs(v) <= 5:
-            return "⚠️"
-        else:
-            return "🔴"
+        if pd.isna(v): return "⚪"
+        if abs(v) <= 2: return "🟢"
+        elif abs(v) <= 5: return "⚠️"
+        else: return "🔴"
     top_actions["Signal Entrée"] = top_actions["Proximité (%)"].apply(proximity_marker)
 
-    # Style tableau IA
     def style_prox(v):
-        if pd.isna(v):
-            return ""
-        if abs(v) <= 2:
-            return "background-color:#e8f5e9; color:#0b8043;"
-        if abs(v) <= 5:
-            return "background-color:#fff8e1; color:#a67c00;"
+        if pd.isna(v): return ""
+        if abs(v) <= 2: return "background-color:#e8f5e9; color:#0b8043;"
+        if abs(v) <= 5: return "background-color:#fff8e1; color:#a67c00;"
         return "background-color:#ffebee; color:#b71c1c;"
 
     def style_decision(v):
-        if pd.isna(v):
-            return ""
-        if "Acheter" in v:
-            return "background-color:rgba(0,200,0,0.15);"
-        if "Éviter" in v:
-            return "background-color:rgba(255,0,0,0.15);"
-        if "Surveiller" in v:
-            return "background-color:rgba(0,100,255,0.1);"
+        if pd.isna(v): return ""
+        if "Acheter" in v: return "background-color:rgba(0,200,0,0.15);"
+        if "Éviter" in v: return "background-color:rgba(255,0,0,0.15);"
+        if "Surveiller" in v: return "background-color:rgba(0,100,255,0.1);"
         return ""
 
     styled = (
@@ -177,7 +163,6 @@ st.divider()
 # =======================================================
 st.subheader("💸 Portefeuille virtuel (suivi IA)")
 
-# ---------- Fichiers ----------
 SUIVI_PATH = "data/suivi_virtuel.json"
 os.makedirs("data", exist_ok=True)
 
@@ -185,7 +170,8 @@ def _load_suivi():
     if not os.path.exists(SUIVI_PATH):
         return []
     try:
-        data = json.load(open(SUIVI_PATH, "r", encoding="utf-8"))
+        with open(SUIVI_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
         return data if isinstance(data, list) else data.get("items", [])
     except Exception:
         return []
@@ -194,7 +180,6 @@ def _save_suivi(items):
     with open(SUIVI_PATH, "w", encoding="utf-8") as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
 
-# ---------- Paramètres ----------
 colA, colB, colC = st.columns([1, 1, 2])
 with colA:
     montant = st.number_input("💶 Montant par ligne (€)", min_value=5.0, step=5.0, value=20.0)
@@ -203,85 +188,63 @@ with colB:
 with colC:
     st.caption("Les calculs incluent 1 € de frais d’entrée et 1 € de sortie.")
 
-# ---------- Liste d’opportunités ----------
+# Sélection IA à ajouter
 st.markdown("### 🧠 Sélection IA — Ajout au suivi virtuel")
 
-if top_actions.empty:
-    st.info("Aucune opportunité IA disponible.")
-else:
-    # Renommage compatible
-    df_cols = list(top_actions.columns)
-    rename_map = {}
-    if "name" in df_cols:
-        rename_map["name"] = "Société"
-    if "Ticker" in df_cols:
-        rename_map["Ticker"] = "Symbole"
-    if "Symbol" in df_cols:
-        rename_map["Symbol"] = "Symbole"
-    top_actions = top_actions.rename(columns=rename_map)
+if not top_actions.empty:
+    rename_map = {"name": "Société", "Ticker": "Symbole", "Symbol": "Symbole"}
+    top_actions.rename(columns={k: v for k, v in rename_map.items() if k in top_actions.columns}, inplace=True)
     if "IA_Score" not in top_actions.columns:
         top_actions["IA_Score"] = np.nan
 
-    keep_cols = [
-        c for c in [
-            "Société", "Symbole", "Cours (€)", "Entrée (€)", "Objectif (€)", "Stop (€)",
-            "Proximité (%)", "Signal", "IA_Score"
-        ] if c in top_actions.columns
-    ]
-    mini = top_actions[keep_cols].copy()
+    keep = [c for c in ["Société","Symbole","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)","Proximité (%)","Signal","IA_Score"] if c in top_actions.columns]
+    mini = top_actions[keep].copy()
 
     for i, r in mini.iterrows():
-        with st.container():
-            cols = st.columns([3, 1.2, 1.2, 1.2, 1.2, 1, 1, 1])
-            cols[0].markdown(f"**{r.get('Société','?')}** (`{r.get('Symbole','?')}`)")
-            cols[1].markdown(f"💶 {r.get('Cours (€)', np.nan):.2f} €" if pd.notna(r.get("Cours (€)")) else "—")
-            cols[2].markdown(f"🎯 Entrée : {r.get('Entrée (€)', np.nan):.2f} €" if pd.notna(r.get("Entrée (€)")) else "—")
-            cols[3].markdown(f"🎯 Objectif : {r.get('Objectif (€)', np.nan):.2f} €" if pd.notna(r.get("Objectif (€)")) else "—")
-            cols[4].markdown(f"🛑 Stop : {r.get('Stop (€)', np.nan):.2f} €" if pd.notna(r.get("Stop (€)")) else "—")
+        cols = st.columns([3,1.2,1.2,1.2,1.2,1,1,1])
+        cols[0].markdown(f"**{r.get('Société','?')}** (`{r.get('Symbole','?')}`)")
+        cols[1].markdown(f"{r.get('Cours (€)', np.nan):.2f} €" if pd.notna(r.get('Cours (€)')) else "—")
+        cols[2].markdown(f"Entrée: {r.get('Entrée (€)', np.nan):.2f} €" if pd.notna(r.get('Entrée (€)')) else "—")
+        cols[3].markdown(f"🎯 Objectif: {r.get('Objectif (€)', np.nan):.2f} €" if pd.notna(r.get('Objectif (€)')) else "—")
+        cols[4].markdown(f"🛑 Stop: {r.get('Stop (€)', np.nan):.2f} €" if pd.notna(r.get('Stop (€)')) else "—")
+        prox = r.get("Proximité (%)", np.nan)
+        cols[5].markdown(f"{prox:+.2f}%" if pd.notna(prox) else "—")
+        cols[6].markdown(f"IA: {r.get('IA_Score', np.nan):.1f}/100" if pd.notna(r.get('IA_Score')) else "—")
 
-            prox = r.get("Proximité (%)", np.nan)
-            emoji = "🟢" if pd.notna(prox) and abs(prox) <= 2 else ("⚠️" if abs(prox) <= 5 else "🔴")
-            cols[5].markdown(f"📏 {prox:+.2f}% {emoji}" if pd.notna(prox) else "📏 —")
-
-            score = r.get("IA_Score", np.nan)
-            cols[6].markdown(f"🧮 Score IA : {score:.1f}/100" if pd.notna(score) else "—")
-
-            if cols[7].button("➕ Ajouter", key=f"add_{i}"):
-                try:
-                    items = _load_suivi()
-                    entry = float(r.get("Entrée (€)") or r.get("Cours (€)") or np.nan)
-                    target = float(r.get("Objectif (€)") or np.nan)
-                    stop = float(r.get("Stop (€)") or np.nan)
-                    fees_in, fees_out = 1.0, 1.0
-                    net_capital = max(montant - fees_in, 0.0)
-                    qty = net_capital / entry if entry > 0 else 0.0
-                    rend_net = ((target - entry) / entry * 100) - (2 / entry * 100) if np.isfinite(entry) and np.isfinite(target) else np.nan
-
-                    items.append({
-                        "ticker": str(r.get("Symbole")),
-                        "name": str(r.get("Société")),
-                        "entry": round(entry, 4),
-                        "target": target,
-                        "stop": stop,
-                        "amount": float(montant),
-                        "fees_in": fees_in,
-                        "fees_out": fees_out,
-                        "qty": round(qty, 6),
-                        "rendement_estime_pct": rend_net,
-                        "score_ia": float(score) if pd.notna(score) else None,
-                        "profile": profil,
-                        "added_at": datetime.now(timezone.utc).isoformat(),
-                        "horizon": horizon_txt
-                    })
-                    _save_suivi(items)
-                    st.success(f"Ajouté au suivi virtuel : {r.get('Société')} ({r.get('Symbole')}) — {montant:.2f} €")
-                except Exception as e:
-                    st.error(f"Erreur lors de l’ajout : {e}")
+        if cols[7].button("➕ Ajouter", key=f"add_{i}"):
+            try:
+                items = _load_suivi()
+                entry = float(r.get("Entrée (€)") or r.get("Cours (€)") or np.nan)
+                target = float(r.get("Objectif (€)") or np.nan)
+                stop = float(r.get("Stop (€)") or np.nan)
+                qty = (montant - 1.0) / entry if entry > 0 else 0
+                rend = ((target - entry)/entry*100 - (2/entry*100)) if np.isfinite(entry) and np.isfinite(target) else np.nan
+                items.append({
+                    "ticker": str(r.get("Symbole")),
+                    "name": str(r.get("Société")),
+                    "entry": entry,
+                    "target": target,
+                    "stop": stop,
+                    "amount": float(montant),
+                    "qty": qty,
+                    "rendement_estime_pct": rend,
+                    "score_ia": float(r.get("IA_Score", np.nan)),
+                    "added_at": datetime.now(timezone.utc).isoformat(),
+                    "profile": profil,
+                    "horizon": horizon_txt
+                })
+                _save_suivi(items)
+                st.success(f"Ajouté : {r.get('Société')} ({r.get('Symbole')}) — {montant:.2f} €")
+            except Exception as e:
+                st.error(f"Erreur : {e}")
 
 st.divider()
+
+# =======================================================
+# 📊 SUIVI VIRTUEL — AFFICHAGE
+# =======================================================
 st.markdown("### 📊 Suivi virtuel — performance & comparaison CAC 40")
 
-# ---------- Lecture ----------
 items = _load_suivi()
 if not items:
     st.caption("Aucune ligne dans le suivi virtuel.")
@@ -289,81 +252,79 @@ else:
     df = pd.DataFrame(items)
     tickers = df["ticker"].dropna().unique().tolist()
     px = fetch_prices(tickers + ["^FCHI"], days=60)
+
     if px.empty or "Date" not in px.columns:
-        st.warning("Pas assez d’historique pour évaluer les performances.")
+        st.warning("Pas assez d’historique.")
     else:
-        last = px.sort_values("Date").groupby("Ticker").tail(1)[["Ticker", "Close"]].rename(columns={"Close": "last_close"})
+        last = px.sort_values("Date").groupby("Ticker").tail(1)[["Ticker","Close"]].rename(columns={"Close":"last_close"})
         df = df.merge(last, left_on="ticker", right_on="Ticker", how="left")
 
-        def compute_perf(row):
-            entry, qty, amt, fees_out = float(row["entry"]), float(row["qty"]), float(row["amount"]), float(row["fees_out"])
-            last_p = row["last_close"]
-            if not np.isfinite(last_p):
-                return pd.Series({"valeur_actuelle": np.nan, "pnl_pct": np.nan})
-            cur_val = qty * last_p - fees_out
-            pnl_pct = ((cur_val - amt) / amt * 100) if amt > 0 else np.nan
-            return pd.Series({"valeur_actuelle": cur_val, "pnl_pct": pnl_pct})
+        def perf(r):
+            entry, qty, amt = r["entry"], r["qty"], r["amount"]
+            last_p = r["last_close"]
+            if not np.isfinite(last_p): return pd.Series({"valeur_actuelle":np.nan,"pnl_pct":np.nan})
+            val = qty * last_p - 1.0
+            pnl = ((val - amt)/amt*100) if amt>0 else np.nan
+            return pd.Series({"valeur_actuelle":val,"pnl_pct":pnl})
 
-        res = df.apply(compute_perf, axis=1)
-        df = pd.concat([df, res], axis=1)
+        df = pd.concat([df, df.apply(perf, axis=1)], axis=1)
 
-        tot_val = df["valeur_actuelle"].sum()
-        tot_invest = df["amount"].sum()
-        tot_pct = ((tot_val - tot_invest) / tot_invest * 100) if tot_invest > 0 else np.nan
-
-        c1, c2 = st.columns(2)
+        tot_val, tot_amt = df["valeur_actuelle"].sum(), df["amount"].sum()
+        tot_pct = ((tot_val - tot_amt)/tot_amt*100) if tot_amt>0 else np.nan
+        c1,c2 = st.columns(2)
         c1.metric("Performance globale", f"{tot_pct:+.2f}%")
         c2.metric("Capital virtuel", f"{tot_val:,.2f} €")
 
-        show = df.copy()
-        show.rename(columns={
-            "name": "Société",
-            "ticker": "Ticker",
-            "last_close": "Cours actuel (€)",
-            "entry": "Entrée (€)",
-            "target": "Objectif (€)",
-            "stop": "Stop (€)",
-            "rendement_estime_pct": "Rendement estimé (%)",
-            "qty": "Qté",
-            "amount": "Montant initial (€)",
-            "valeur_actuelle": "Valeur actuelle (€)",
-            "pnl_pct": "P&L (%)"
-        }, inplace=True)
+        # ---------- Corrige doublons
+        def _dedup_columns(cols):
+            seen = {}
+            new_cols = []
+            for c in cols:
+                if c not in seen:
+                    seen[c] = 0
+                    new_cols.append(c)
+                else:
+                    seen[c]+=1
+                    new_cols.append(f"{c}_{seen[c]}")
+            return new_cols
+        df.columns = _dedup_columns(df.columns)
 
-        # 🔧 Supprime doublons de colonnes
-        show.columns = pd.io.parsers.ParserBase({'names': show.columns})._maybe_dedup_names(show.columns)
+        show = df.rename(columns={
+            "name":"Société","ticker":"Ticker","last_close":"Cours actuel (€)",
+            "entry":"Entrée (€)","target":"Objectif (€)","stop":"Stop (€)",
+            "rendement_estime_pct":"Rendement estimé (%)","qty":"Qté",
+            "amount":"Montant initial (€)","valeur_actuelle":"Valeur actuelle (€)","pnl_pct":"P&L (%)"
+        })
 
-        # 🔧 Vérifie colonnes manquantes
-        expected_cols = [
-            "Société", "Ticker", "Cours actuel (€)", "Entrée (€)", "Objectif (€)", "Stop (€)",
-            "Rendement estimé (%)", "Qté", "Montant initial (€)", "Valeur actuelle (€)", "P&L (%)"
-        ]
-        for c in expected_cols:
-            if c not in show.columns:
-                show[c] = np.nan
+        exp = ["Société","Ticker","Cours actuel (€)","Entrée (€)","Objectif (€)","Stop (€)",
+               "Rendement estimé (%)","Qté","Montant initial (€)","Valeur actuelle (€)","P&L (%)"]
+        for c in exp:
+            if c not in show.columns: show[c]=np.nan
 
-        st.dataframe(
-            show[expected_cols].style.format(precision=2),
-            use_container_width=True, hide_index=True
-        )
+        st.dataframe(show[exp].style.format(precision=2), use_container_width=True, hide_index=True)
 
-        # ---------- Suppression d’une ligne ----------
+        # ---------- Suppression
         st.markdown("#### 🗑 Retirer une ligne")
-        tickers_del = show["Ticker"].unique().tolist()
-        colA, colB = st.columns([3, 1])
-        with colA:
-            del_sel = st.selectbox("Sélectionner une ligne à retirer", tickers_del)
-        with colB:
-            if st.button("Supprimer"):
-                items = _load_suivi()
-                items = [x for x in items if x["ticker"] != del_sel]
-                _save_suivi(items)
-                st.success(f"Ligne supprimée : {del_sel}")
-                st.rerun()
+        del_sel = st.selectbox("Sélectionne une ligne", show["Ticker"].unique().tolist())
+        if st.button("Supprimer"):
+            items = [x for x in items if x["ticker"] != del_sel]
+            _save_suivi(items)
+            st.success(f"Ligne supprimée : {del_sel}")
+            st.rerun()
 
-
-st.divider()
-
-# Pied de page
-st.divider()
-st.caption("💡 Active/désactive les marchés US dans la barre latérale. Le suivi virtuel est indépendant du portefeuille réel.")
+        # ---------- Comparaison CAC 40
+        st.markdown("### 📈 Comparaison performance virtuelle vs CAC 40")
+        df_val = px[px["Ticker"].isin(tickers)].copy()
+        if not df_val.empty:
+            df_val["Valeur"] = df_val["Close"]
+            base_port = df_val.groupby("Date")["Valeur"].mean().reset_index()
+            base_cac = px[px["Ticker"]=="^FCHI"].copy()
+            base_port["Portefeuille"] = base_port["Valeur"]/base_port["Valeur"].iloc[0]*100-100
+            base_cac["CAC40"] = base_cac["Close"]/base_cac["Close"].iloc[0]*100-100
+            merged = pd.merge(base_port[["Date","Portefeuille"]], base_cac[["Date","CAC40"]], on="Date", how="inner")
+            chart = alt.Chart(merged).transform_fold(
+                ["Portefeuille","CAC40"], as_=["Type","Performance"]
+            ).mark_line().encode(
+                x="Date:T", y="Performance:Q", color="Type:N"
+            ).properties(height=400)
+            st.altair_chart(chart, use_container_width=True)
