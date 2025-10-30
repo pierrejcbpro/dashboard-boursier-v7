@@ -407,7 +407,7 @@ else:
                         time.sleep(0.6)
                         st.rerun()
 
-
+st.divider()
 
 # ---------------- 📰 Actualités ----------------
 st.markdown("### 📰 Actualités principales")
