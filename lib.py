@@ -12,12 +12,14 @@ from nltk.sentiment import SentimentIntensityAnalyzer
 # =========================
 DATA_DIR = "data"
 MAPPING_PATH = os.path.join(DATA_DIR, "id_mapping.json")
+WL_PATH = os.path.join(DATA_DIR, "watchlist_ls.json")          # ← LS Exchange perso
 PROFILE_PATH = os.path.join(DATA_DIR, "profile.json")
 LAST_SEARCH_PATH = os.path.join(DATA_DIR, "last_search.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 _defaults = [
     (MAPPING_PATH, {}),
+    (WL_PATH, []),
     (PROFILE_PATH, {"profil": "Neutre"}),
     (LAST_SEARCH_PATH, {"last": "TTE.PA"}),
 ]
@@ -92,6 +94,15 @@ def load_mapping():
 def save_mapping(m):
     json.dump(m, open(MAPPING_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
+def load_watchlist_ls():
+    try:
+        return json.load(open(WL_PATH, "r", encoding="utf-8"))
+    except Exception:
+        return []
+
+def save_watchlist_ls(lst):
+    json.dump(lst, open(WL_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
 def _norm(s): return (s or "").strip().upper()
 _PARIS = {"AIR","ORA","MC","TTE","BNP","SGO","ENGI","SU","DG","ACA","GLE","RI","KER","HO","EN","CAP","AI","PUB","VIE","VIV","STM"}
 
@@ -99,7 +110,7 @@ def guess_yahoo_from_ls(ticker: str):
     """Heuristique simple si on tombe sur des symboles courts 'LS-like'."""
     if not ticker: return None
     t = _norm(ticker)
-    if "." in t and not t.endswith(".LS"):   # déjà suffixé
+    if "." in t and not t.endswith(".LS"):   # déjà suffixé Yahoo
         return t
     if t.endswith(".LS"):                    # Londres
         return f"{t[:-3]}.L"
@@ -182,7 +193,7 @@ def find_ticker_by_name(company_name: str, prefer_markets=("Paris","XETRA","Fran
     return [r for _, r in ranked]
 
 # =========================
-# MEMBRES D’INDICES (CAC40, DAX, NASDAQ100)
+# MEMBRES D’INDICES (CAC40, DAX, NASDAQ100, S&P500)
 # =========================
 @lru_cache(maxsize=32)
 def _read_tables(url: str):
@@ -212,7 +223,6 @@ def members_cac40():
 
 @lru_cache(maxsize=8)
 def members_dax():
-    # DAX (Germany) — Yahoo: suffix .DE (Xetra)
     df=_extract_name_ticker(_read_tables("https://en.wikipedia.org/wiki/DAX"))
     df["ticker"]=df["ticker"].apply(lambda x: x if "." in x else f"{x}.DE")
     df["index"]="DAX"
@@ -220,20 +230,38 @@ def members_dax():
 
 @lru_cache(maxsize=8)
 def members_nasdaq100():
-    # NASDAQ-100 constituents
     df=_extract_name_ticker(_read_tables("https://en.wikipedia.org/wiki/Nasdaq-100"))
-    # US tickers: pas de suffix
-    df["index"]="NASDAQ 100"
+    df["index"]="NASDAQ 100"     # US => pas de suffix Yahoo
     return df
+
+@lru_cache(maxsize=8)
+def members_sp500():
+    # Constituants S&P 500 (table Wikipedia "List of S&P 500 companies")
+    tables = _read_tables("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+    # Cherche colonnes Symbol / Security
+    table=None
+    for df in tables:
+        cols={str(c).lower() for c in df.columns}
+        if ("symbol" in cols) and ("security" in cols or "company" in cols or "name" in cols):
+            table=df.copy(); break
+    if table is None: table=tables[0].copy()
+    table.rename(columns={c:str(c).lower() for c in table.columns}, inplace=True)
+    tcol=next((c for c in table.columns if "symbol" in c or "ticker" in c), table.columns[0])
+    ncol=next((c for c in table.columns if "security" in c or "company" in c or "name" in c), table.columns[1])
+    out=table[[tcol,ncol]].copy(); out.columns=["ticker","name"]
+    out["ticker"]=out["ticker"].astype(str).str.strip()
+    out["index"]="S&P 500"
+    return out.dropna().drop_duplicates(subset=["ticker"])
 
 def members(index_name: str):
     if index_name=="CAC 40": return members_cac40()
     if index_name=="DAX": return members_dax()
     if index_name=="NASDAQ 100": return members_nasdaq100()
+    if index_name=="S&P 500": return members_sp500()
     return pd.DataFrame(columns=["ticker","name","index"])
 
 # =========================
-# PRIX (AJUSTÉS) & MÉTRIQUES
+# PRIX (AJUSTÉS) & HISTO
 # =========================
 @lru_cache(maxsize=64)
 def fetch_prices_cached(tickers_tuple, period="120d"):
@@ -263,6 +291,9 @@ def fetch_prices_cached(tickers_tuple, period="120d"):
 def fetch_prices(tickers, days=120):
     return fetch_prices_cached(tuple(tickers), period=f"{days}d")
 
+# =========================
+# VARIATIONS CALENDAIRES
+# =========================
 def _calendar_returns(last_rows: pd.DataFrame, full_df: pd.DataFrame) -> pd.DataFrame:
     """Variations calendaire J/7j/30j (tolérant jours sans cotations)."""
     if full_df.empty or last_rows.empty:
@@ -290,12 +321,14 @@ def _calendar_returns(last_rows: pd.DataFrame, full_df: pd.DataFrame) -> pd.Data
         v1  = (pref/p1-1)  if (np.isfinite(pref) and np.isfinite(p1)  and p1>0)  else np.nan
         v7  = (pref/p7-1)  if (np.isfinite(pref) and np.isfinite(p7)  and p7>0)  else np.nan
         v30 = (pref/p30-1) if (np.isfinite(pref) and np.isfinite(p30) and p30>0) else np.nan
-        # clamp anti-délires (splits non détectés)
-        if np.isfinite(v1) and abs(v1)>0.4: v1=np.nan
+        if np.isfinite(v1) and abs(v1)>0.4: v1=np.nan    # anti-split extrême
         vals_1.append(v1); vals_7.append(v7); vals_30.append(v30)
     last["pct_1d"], last["pct_7d"], last["pct_30d"] = vals_1, vals_7, vals_30
     return last
 
+# =========================
+# MÉTRIQUES (MA20/50/120/240 + trend)
+# =========================
 def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """
     Retourne 1 ligne par ticker avec :
@@ -320,7 +353,7 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df=df.sort_values(["Ticker","Date"])
     df["PrevClose"]=df.groupby("Ticker")["Close"].shift(1)
 
-    # True Range & ATR14
+    # TR & ATR
     tr1 = df["High"] - df["Low"]
     tr2 = (df["High"] - df["PrevClose"]).abs()
     tr3 = (df["Low"]  - df["PrevClose"]).abs()
@@ -328,14 +361,14 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df["ATR14"]=df.groupby("Ticker")["TR"].transform(lambda s:s.rolling(14,min_periods=5).mean())
 
     # MAs
-    df["MA20"]  = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(20, min_periods=5).mean())
-    df["MA50"]  = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(50, min_periods=10).mean())
-    df["MA120"] = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(120,min_periods=20).mean())
-    df["MA240"] = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(240,min_periods=30).mean())
+    df["MA20"]  = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(20,  min_periods=5).mean())
+    df["MA50"]  = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(50,  min_periods=10).mean())
+    df["MA120"] = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(120, min_periods=20).mean())
+    df["MA240"] = df.groupby("Ticker")["Close"].transform(lambda s:s.rolling(240, min_periods=30).mean())
 
     last=df.groupby("Ticker").tail(1)[["Ticker","Date","Close","ATR14","MA20","MA50","MA120","MA240"]].copy()
 
-    # Gaps (vectorisés — sans ValueError)
+    # Gaps vectorisés
     def _gap(a, b):
         a=np.asarray(a, float); b=np.asarray(b, float)
         mask = np.isfinite(a) & np.isfinite(b) & (b!=0)
@@ -352,7 +385,7 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     last["trend_score"]    = 0.6*last["gap20"]  + 0.4*last["gap50"]
     last["lt_trend_score"] = 0.6*last["gap120"] + 0.4*last["gap240"]
 
-    # Variations J/7j/30j
+    # Variations calendaire
     last = _calendar_returns(last, df)
 
     return last.reset_index(drop=True)
@@ -450,7 +483,7 @@ def news_summary(name, ticker, lang="fr"):
     return (txt, m, items)
 
 # =========================
-# DÉCISIONS IA & NIVEAUX
+# DÉCISIONS IA & NIVEAUX (STRICT)
 # =========================
 def price_levels_from_row(row, profile="Neutre"):
     p=get_profile_params(profile)
@@ -464,58 +497,68 @@ def price_levels_from_row(row, profile="Neutre"):
         "stop":   round(base*p["stop_mult"],2),
     }
 
-def decision_label_from_row(row, held=False, vol_max=0.05):
-    px=float(row.get("Close", math.nan))
-    ma20=float(row.get("MA20", math.nan)) if pd.notna(row.get("MA20", math.nan)) else math.nan
-    ma50=float(row.get("MA50", math.nan)) if pd.notna(row.get("MA50", math.nan)) else math.nan
-    atr=float(row.get("ATR14", math.nan)) if pd.notna(row.get("ATR14", math.nan)) else math.nan
-    pru=float(row.get("PRU", math.nan)) if "PRU" in row else math.nan
-    if not math.isfinite(px): return "👁️ Surveiller"
-    vol=(atr/px) if (math.isfinite(atr) and px>0) else 0.03
-    trend=(1 if math.isfinite(ma20) and px>=ma20 else 0)+(1 if math.isfinite(ma50) and px>=ma50 else 0)
-    score=0.0
-    score+=0.5*(1 if trend==2 else 0 if trend==1 else -1)
-    if math.isfinite(pru) and pru>0: score+=0.2*(1 if px>pru*1.02 else -1 if px<pru*0.98 else 0)
-    score+=0.3*(-1 if vol>vol_max else 1)
-    if held:
-        if score>0.5: return "🟢 Acheter"
-        if score<-0.2: return "🔴 Vendre"
-        return "🟠 Garder"
-    else:
-        if score>0.3: return "🟢 Acheter"
-        if score<-0.2: return "🚫 Éviter"
+def decision_label_strict(row, profile="Neutre", held=False):
+    """
+    IA stricte :
+    - ST OK : Close ≥ MA20 ET Close ≥ MA50
+    - LT OK : MA120 ≥ MA240 ET Close ≥ MA120
+    - Volatilité <= seuil du profil
+    - Momentum 7/30j pas trop négatif (mélange pondéré >= -1%)
+    """
+    p=get_profile_params(profile)
+    vol_max=p["vol_max"]
+
+    px=row.get("Close",np.nan)
+    ma20=row.get("MA20",np.nan); ma50=row.get("MA50",np.nan)
+    ma120=row.get("MA120",np.nan); ma240=row.get("MA240",np.nan)
+    atr=row.get("ATR14",np.nan)
+
+    if not np.isfinite(px):
         return "👁️ Surveiller"
 
-def decision_label_combined(row, held=False, vol_max=0.05):
-    """Combine LT (MA120/240) + ST (MA20/50) en un seul libellé."""
-    px=float(row.get("Close", math.nan))
-    ma20=float(row.get("MA20", math.nan)); ma50=float(row.get("MA50", math.nan))
-    ma120=float(row.get("MA120", math.nan)); ma240=float(row.get("MA240", math.nan))
-    atr=float(row.get("ATR14", math.nan))
-    pru=float(row.get("PRU", math.nan)) if "PRU" in row else math.nan
-    if not math.isfinite(px): return "👁️ Surveiller"
+    # Conditions cœur
+    ct_ok=(np.isfinite(ma20) and px>=ma20) and (np.isfinite(ma50) and px>=ma50)
+    lt_ok=(np.isfinite(ma120) and np.isfinite(ma240) and ma120>=ma240 and px>=ma120)
 
-    # Scores de tendance
-    st_up = (math.isfinite(ma20) and px>=ma20) + (math.isfinite(ma50) and px>=ma50)
-    lt_up = (math.isfinite(ma120) and px>=ma120) + (math.isfinite(ma240) and px>=ma240)
-    st_flag = "↑" if st_up==2 else "→" if st_up==1 else "↓"
-    lt_flag = "↑" if lt_up==2 else "→" if lt_up==1 else "↓"
-
-    vol=(atr/px) if (math.isfinite(atr) and px>0) else 0.03
-    score=0.0
-    score+=0.4*(1 if lt_up==2 else 0 if lt_up==1 else -1)
-    score+=0.4*(1 if st_up==2 else 0 if st_up==1 else -1)
-    if math.isfinite(pru) and pru>0: score+=0.1*(1 if px>pru*1.02 else -1 if px<pru*0.98 else 0)
-    score+=0.1*(-1 if vol>vol_max else 1)
-
-    if held:
-        if score>0.4:  return f"🟢 Acheter (LT{lt_flag}, ST{st_flag})"
-        if score<-0.2: return f"🔴 Vendre (LT{lt_flag}, ST{st_flag})"
-        return f"🟠 Garder (LT{lt_flag}, ST{st_flag})"
+    vol=(atr/px) if (np.isfinite(atr) and px>0) else 0.03
+    if profile=="Prudent":
+        vol_ok=vol<=vol_max*0.9
+    elif profile=="Agressif":
+        vol_ok=vol<=vol_max*1.2
     else:
-        if score>0.3:  return f"🟢 Acheter (LT{lt_flag}, ST{st_flag})"
-        if score<-0.2: return f"🚫 Éviter (LT{lt_flag}, ST{st_flag})"
-        return f"👁️ Surveiller (LT{lt_flag}, ST{st_flag})"
+        vol_ok=vol<=vol_max
+
+    m7=row.get("pct_7d",np.nan); m30=row.get("pct_30d",np.nan)
+    mom_ok=True
+    if np.isfinite(m7) or np.isfinite(m30):
+        mix=(0.6*(m7 if np.isfinite(m7) else 0)+0.4*(m30 if np.isfinite(m30) else 0))
+        mom_ok=(mix>=-0.01)  # >= -1%
+
+    # Décision
+    if not ct_ok:
+        if held and (not lt_ok) and (vol>vol_max*1.2):
+            return "🔴 Vendre"
+        return "👁️ Surveiller"
+
+    if not lt_ok:
+        if held and (vol>vol_max*1.2):
+            return "🔴 Vendre"
+        return "👁️ Surveiller"
+
+    if not vol_ok or not mom_ok:
+        return "👁️ Surveiller"
+
+    return "🟢 Acheter"
+
+# Compat : anciennes fonctions pages
+def decision_label_from_row(row, held=False, vol_max=0.05):
+    # On utilise le profil sauvegardé pour rester cohérent entre pages
+    profile = load_profile()
+    return decision_label_strict(row, profile=profile, held=held)
+
+def decision_label_combined(row, held=False, vol_max=0.05):
+    profile = load_profile()
+    return decision_label_strict(row, profile=profile, held=held)
 
 # =========================
 # STYLE TABLEAUX (couleurs)
@@ -531,26 +574,26 @@ def style_variations(df, cols):
         if c in df.columns: sty=sty.applymap(color_var, subset=[c])
     return sty
 
-# (optionnels) helpers de surbrillance proximité
+# Helpers de surbrillance proximité (si besoin dans pages)
 def color_proximity_adaptive(v):
     if pd.isna(v): return ""
-    if abs(v) <= 2: return "background-color:#e6f4ea; color:#0b8043"  # vert
-    if abs(v) <= 5: return "background-color:#fff8e1; color:#a67c00"  # jaune
-    return "background-color:#ffebee; color:#b71c1c"                   # rouge
+    if abs(v) <= 2: return "background-color:#e6f4ea; color:#0b8043"
+    if abs(v) <= 5: return "background-color:#fff8e1; color:#a67c00"
+    return "background-color:#ffebee; color:#b71c1c"
 
 def highlight_near_entry_adaptive(row):
     p = row.get("Proximité (%)")
     if pd.notna(p) and abs(p) <= 2:
-        return ["background-color: #2a2a2a20; font-weight:600"] * len(row)  # léger voile universel (clair/sombre)
+        return ["background-color: #2a2a2a20; font-weight:600"] * len(row)
     return [""] * len(row)
 
 # =========================
-# AGGRÉGATION MARCHÉS
+# AGGRÉGATION MARCHÉS (CAC40 / DAX / NASDAQ100 / S&P500 / LS)
 # =========================
 def fetch_all_markets(markets, days_hist=240):
     """
     markets: liste de tuples (Indice, source) – source ignorée
-    Supporte: "CAC 40", "DAX", "NASDAQ 100"
+    Supporte: "CAC 40", "DAX", "NASDAQ 100", "S&P 500", "LS Exchange"
     """
     frames=[]
     for idx, _ in markets:
@@ -560,14 +603,25 @@ def fetch_all_markets(markets, days_hist=240):
             mem=members("DAX")
         elif idx=="NASDAQ 100":
             mem=members("NASDAQ 100")
+        elif idx=="S&P 500":
+            mem=members("S&P 500")
+        elif idx=="LS Exchange":
+            # Watchlist perso, convertie en Yahoo via mapping/heuristique
+            raw = load_watchlist_ls()
+            tickers=[maybe_guess_yahoo(x) or x for x in raw] if raw else []
+            mem=pd.DataFrame({"ticker": tickers, "name": raw})
         else:
             continue
+
         if mem.empty: continue
+
         px=fetch_prices(mem["ticker"].tolist(), days=days_hist)
         if px.empty: continue
+
         met=compute_metrics(px).merge(mem, left_on="Ticker", right_on="ticker", how="left")
         met["Indice"]=idx
         frames.append(met)
+
     return pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
 
 # =========================
@@ -575,13 +629,12 @@ def fetch_all_markets(markets, days_hist=240):
 # =========================
 def select_top_actions(df, profile="Neutre", n=10, include_proximity=True):
     """
-    Retourne les meilleures actions (≤ n) selon IA :
+    Retourne les meilleures actions (≤ n) selon IA stricte :
     - tendance ST (MA20/50) & LT (MA120/240)
     - momentum (7j/30j), volatilité (ATR/Close)
-    - décision IA combinée
+    - décision IA stricte
     - niveaux Entrée/Objectif/Stop
-    - Potentiel (€) = Objectif - Entrée
-    - Proximité (%) = (Close/Entrée - 1)*100 (optionnel)
+    - Potentiel (€) & Proximité (%)
     """
     if df is None or df.empty:
         return pd.DataFrame()
@@ -596,7 +649,7 @@ def select_top_actions(df, profile="Neutre", n=10, include_proximity=True):
     data = data.dropna(subset=["Close"]).copy()
     data["Volatilité"] = data["ATR14"] / data["Close"]
 
-    # Score IA global (pondère LT un peu + fort)
+    # Score IA global (LT un peu + fort)
     data["IA_Score"] = (
         (data["lt_trend_score"].fillna(0) * 60.0)
         + (data["trend_score"].fillna(0)     * 40.0)
@@ -605,7 +658,8 @@ def select_top_actions(df, profile="Neutre", n=10, include_proximity=True):
         - (data["Volatilité"].fillna(0)      * 10.0)
     )
 
-    data["Signal"] = data.apply(lambda r: decision_label_combined(r, held=False, vol_max=vol_max), axis=1)
+    data["Signal"] = data.apply(lambda r: decision_label_strict(r, profile=profile, held=False), axis=1)
+
     # Garde signaux "Acheter" et vol maîtrisée
     filt = (data["Signal"].str.contains("🟢", na=False)) & (data["Volatilité"] <= vol_max * 1.5)
     data = data[filt].sort_values("IA_Score", ascending=False)
@@ -643,18 +697,21 @@ def select_top_actions(df, profile="Neutre", n=10, include_proximity=True):
     top.rename(columns={
         "Ticker":"Symbole","name":"Société","Close":"Cours (€)",
         "trend_score":"Trend ST","lt_trend_score":"Trend LT",
-        "pct_7d":"Perf 7j (%)","pct_30d":"Perf 30j (%)",
+        "pct_7d":"Perf 7j (%)","pct_30j":"Perf 30j (%)",
         "Volatilité":"Risque","IA_Score":"Score IA"
     }, inplace=True)
 
     # Formats
-    top["Perf 7j (%)"]   = (top["Perf 7j (%)"]*100).round(2)
-    top["Perf 30j (%)"]  = (top["Perf 30j (%)"]*100).round(2)
-    top["Risque"]        = (top["Risque"]*100).round(2)
-    top["Score IA"]      = top["Score IA"].round(2)
-    top["Cours (€)"]     = top["Cours (€)"].round(2)
-    top["Potentiel (€)"] = top["Potentiel (€)"].round(2)
-    if include_proximity:
+    if "Perf 7j (%)" in top.columns:   top["Perf 7j (%)"]   = (top["Perf 7j (%)"]*100).round(2)
+    if "Perf 30j (%)" in top.columns and "Perf 30j (%)" not in top:  # garde compat si nom différent
+        pass
+    if "pct_30d" in df.columns and "Perf 30j (%)" in top.columns:
+        top["Perf 30j (%)"]  = top["Perf 30j (%)"].round(2)
+    if "Risque" in top.columns:        top["Risque"]        = (top["Risque"]*100).round(2)
+    if "Score IA" in top.columns:      top["Score IA"]      = top["Score IA"].round(2)
+    if "Cours (€)" in top.columns:     top["Cours (€)"]     = top["Cours (€)"].round(2)
+    if "Potentiel (€)" in top.columns: top["Potentiel (€)"] = top["Potentiel (€)"].round(2)
+    if include_proximity and "Proximité (%)" in top.columns:
         top["Proximité (%)"] = top["Proximité (%)"].round(2)
 
     return top.reset_index(drop=True)
