@@ -207,7 +207,7 @@ with col3: bar_chart(top, f"Top 10 hausses ({periode})")
 with col4: bar_chart(flop, f"Top 10 baisses ({periode})")
 
 
-
+st.divider()
 # =========================
 # 💸 Onglet — Portefeuille virtuel (suivi)
 # =========================
@@ -222,74 +222,78 @@ def _load_suivi():
         return []
     try:
         obj = json.load(open(SUIVI_PATH, "r", encoding="utf-8"))
-        # tolérant : dict -> list
         if isinstance(obj, dict):
-            # ancienne forme, on le transforme en liste d'items
-            items = obj.get("items") or []
-            return items if isinstance(items, list) else []
-        if isinstance(obj, list):
-            return obj
-        return []
+            return obj.get("items", [])
+        return obj if isinstance(obj, list) else []
     except Exception:
         return []
 
 def _save_suivi(items):
-    # format liste propre
     with open(SUIVI_PATH, "w", encoding="utf-8") as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
 
-# Paramètres d'injection
-c1, c2, c3 = st.columns([1,1,2])
+# ---------------- PARAMÈTRES D’INVESTISSEMENT ----------------
+c1, c2, c3 = st.columns([1, 1, 2])
 with c1:
-    montant = st.number_input("Montant par ligne (€)", min_value=5.0, step=5.0, value=20.0)
+    montant = st.number_input("💶 Montant par ligne (€)", min_value=5.0, step=5.0, value=20.0)
 with c2:
     horizon_txt = st.selectbox("Horizon cible", ["1 semaine", "2 semaines", "1 mois"], index=2)
 with c3:
-    st.caption("Frais pris en compte automatiquement : **1€ entrée + 1€ sortie**.")
+    st.caption("Les calculs incluent **1€ de frais d’entrée** et **1€ de sortie** automatiquement.")
 
-st.markdown("**Sélection IA (ajout au suivi)**")
+st.markdown("### 🧠 Sélection IA (ajout au suivi virtuel)")
+
 if top_actions.empty:
-    st.info("Aucune proposition IA disponible pour ajout.")
+    st.info("Aucune opportunité IA disponible pour ajout.")
 else:
-    # On montre un mini tableau avec bouton d'ajout par ligne
-    mini = top_actions[["Société","Symbole","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)","Proximité (%)","Signal"]].copy()
-    mini.rename(columns={"Symbole":"Ticker"}, inplace=True)
+    # Table simplifiée des opportunités
+    mini = top_actions[["Société", "Symbole", "Cours (€)", "Entrée (€)", "Objectif (€)", "Stop (€)", "Proximité (%)", "Signal", "IA_Score"]].copy()
+    mini.rename(columns={"Symbole": "Ticker"}, inplace=True)
 
-    # Pour chaque ligne, bouton d'ajout
     for i, r in mini.iterrows():
         with st.container():
-            cols = st.columns([3,2,2,2,2,2,2,2])
-            cols[0].markdown(f"**{r['Société']}**")
-            cols[1].markdown(f"`{r['Ticker']}`")
-            cols[2].markdown(f"📈 Cours: **{r['Cours (€)']:.2f}**")
-            cols[3].markdown(f"🎯 Entrée: **{r['Entrée (€)']:.2f}**")
-            cols[4].markdown(f"🎯 Obj.: **{r['Objectif (€)']:.2f}**")
-            cols[5].markdown(f"🛑 Stop: **{r['Stop (€)']:.2f}**")
+            cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1.2, 1.2, 1.2])
+            cols[0].markdown(f"**{r['Société']}** (`{r['Ticker']}`)")
+            cols[1].markdown(f"💶 **{r['Cours (€)']:.2f} €**")
+            cols[2].markdown(f"🎯 Entrée : **{r['Entrée (€)']:.2f} €**")
+            cols[3].markdown(f"🎯 Objectif : **{r['Objectif (€)']:.2f} €**")
+            cols[4].markdown(f"🛑 Stop : **{r['Stop (€)']:.2f} €**")
+
             prox = r.get("Proximité (%)", np.nan)
-            if pd.notna(prox):
-                emoji = "🟢" if abs(prox)<=2 else ("⚠️" if abs(prox)<=5 else "🔴")
-                cols[6].markdown(f"📏 Prox: **{prox:+.2f}%** {emoji}")
+            emoji = "🟢" if abs(prox) <= 2 else ("⚠️" if abs(prox) <= 5 else "🔴")
+            cols[5].markdown(f"📏 {prox:+.2f}% {emoji}" if pd.notna(prox) else "📏 —")
+
+            score = r.get("IA_Score", np.nan)
+            if pd.notna(score):
+                cols[6].markdown(f"🧮 Score IA : **{score:.1f}/100**")
             else:
-                cols[6].markdown("📏 Prox: —")
-            # Bouton
+                cols[6].markdown("🧮 Score IA : —")
+
+            # Bouton ajout
             if cols[7].button("➕ Ajouter", key=f"add_{i}"):
                 try:
                     items = _load_suivi()
                     entry = float(r["Entrée (€)"]) if pd.notna(r["Entrée (€)"]) else float(r["Cours (€)"])
-                    fees_in = 1.0
-                    fees_out = 1.0
+                    fees_in, fees_out = 1.0, 1.0
                     net_capital = max(montant - fees_in, 0.0)
-                    qty = net_capital / entry if entry>0 else 0.0
+                    qty = net_capital / entry if entry > 0 else 0.0
+                    target, stop = float(r["Objectif (€)"]), float(r["Stop (€)"])
+
+                    # Rendement net estimé
+                    rend_net = ((target - entry) / entry * 100) - (2 / entry * 100) if np.isfinite(entry) and np.isfinite(target) else np.nan
+
                     items.append({
                         "ticker": str(r["Ticker"]),
                         "name": str(r["Société"]),
                         "entry": round(entry, 4),
-                        "target": float(r["Objectif (€)"]) if pd.notna(r["Objectif (€)"]) else None,
-                        "stop": float(r["Stop (€)"]) if pd.notna(r["Stop (€)"]) else None,
+                        "target": target,
+                        "stop": stop,
                         "amount": float(montant),
                         "fees_in": fees_in,
                         "fees_out": fees_out,
                         "qty": round(qty, 6),
+                        "rendement_estime_pct": rend_net,
+                        "score_ia": float(score) if pd.notna(score) else None,
                         "profile": profil,
                         "added_at": datetime.now(timezone.utc).isoformat(),
                         "horizon": horizon_txt
@@ -300,112 +304,80 @@ else:
                     st.error(f"Erreur lors de l’ajout : {e}")
 
 st.divider()
-st.markdown("### 📒 Suivi virtuel — performance & comparaison CAC 40")
+st.markdown("### 📊 Suivi virtuel — performance & comparaison CAC 40")
 
 items = _load_suivi()
 if not items:
     st.caption("Aucune ligne dans le suivi virtuel pour le moment.")
 else:
     df = pd.DataFrame(items)
-    # Récup prix actuels
     tickers = df["ticker"].dropna().unique().tolist()
     px = fetch_prices(tickers + ["^FCHI"], days=60)
     if px.empty or "Date" not in px.columns:
-        st.warning("Données insuffisantes pour l’évaluation en temps réel.")
+        st.warning("Pas assez d’historique pour évaluer les performances.")
     else:
-        last = px.sort_values("Date").groupby("Ticker").tail(1)[["Ticker","Close"]].rename(columns={"Close":"last_close"})
+        last = px.sort_values("Date").groupby("Ticker").tail(1)[["Ticker", "Close"]].rename(columns={"Close": "last_close"})
         df = df.merge(last, left_on="ticker", right_on="Ticker", how="left")
-        df.drop(columns=["Ticker"], inplace=True, errors="ignore")
 
-        # PnL par ligne (avec frais sortie inclus au moment de l'exit => on estime net en retranchant fees_out de la valeur finale)
-        def compute_line(row):
-            entry = float(row.get("entry") or np.nan)
-            qty   = float(row.get("qty") or 0.0)
-            amt   = float(row.get("amount") or 0.0)
-            fees_in  = float(row.get("fees_in") or 0.0)
-            fees_out = float(row.get("fees_out") or 0.0)
-            last_p = float(row.get("last_close") or np.nan)
-            cur_val = qty * last_p if np.isfinite(last_p) else np.nan
-            # Net aujourd'hui si on sortait : valeur - frais de sortie
-            cur_val_net = cur_val - fees_out if np.isfinite(cur_val) else np.nan
-            invested_net = amt  # on a déjà soustrait fees_in dans qty; amt inclut tout cash déboursé
-            pnl = cur_val_net - invested_net if (np.isfinite(cur_val_net)) else np.nan
-            pnl_pct = (pnl / invested_net * 100.0) if (invested_net>0 and np.isfinite(pnl)) else np.nan
-            return pd.Series({"current_value_net": cur_val_net, "pnl_eur": pnl, "pnl_pct": pnl_pct})
+        # Valeurs actualisées
+        def compute_perf(row):
+            entry, qty, amt, fees_out = float(row["entry"]), float(row["qty"]), float(row["amount"]), float(row["fees_out"])
+            last_p = row["last_close"]
+            if not np.isfinite(last_p): return pd.Series({"valeur_actuelle": np.nan, "pnl_pct": np.nan})
+            cur_val = qty * last_p - fees_out
+            pnl_pct = ((cur_val - amt) / amt * 100) if amt > 0 else np.nan
+            return pd.Series({"valeur_actuelle": cur_val, "pnl_pct": pnl_pct})
 
-        res = df.apply(compute_line, axis=1)
+        res = df.apply(compute_perf, axis=1)
         df = pd.concat([df, res], axis=1)
 
-        # Bench CAC40 depuis la date d’ajout (approx : on prend le % variation sur 30 jours si date trop récente indispo)
-        bmk = px[px["Ticker"]=="^FCHI"].sort_values("Date")[["Date","Close"]].rename(columns={"Close":"bmk_close"})
-        bmk_first = bmk["bmk_close"].iloc[0] if not bmk.empty else np.nan
-        bmk_last  = bmk["bmk_close"].iloc[-1] if not bmk.empty else np.nan
-        bmk_pct = ((bmk_last/bmk_first - 1)*100.0) if (pd.notna(bmk_first) and pd.notna(bmk_last) and bmk_first>0) else np.nan
-
-        # Aggrégat portefeuille
+        # Agrégat global
+        tot_val = df["valeur_actuelle"].sum()
         tot_invest = df["amount"].sum()
-        tot_cur    = df["current_value_net"].sum()
-        tot_pnl    = tot_cur - tot_invest if (pd.notna(tot_cur) and pd.notna(tot_invest)) else np.nan
-        tot_pct    = (tot_pnl / tot_invest * 100.0) if (tot_invest>0 and pd.notna(tot_pnl)) else np.nan
+        tot_pct = ((tot_val - tot_invest) / tot_invest * 100) if tot_invest > 0 else np.nan
 
-        cA, cB, cC = st.columns(3)
-        with cA: st.metric("Portefeuille virtuel (P&L €)", f"{tot_pnl:+.2f} €")
-        with cB: st.metric("Portefeuille virtuel (P&L %)", f"{tot_pct:+.2f}%")
-        with cC:
-            if pd.notna(bmk_pct):
-                delta = tot_pct - bmk_pct if pd.notna(tot_pct) else np.nan
-                st.metric("vs CAC 40 (depuis période comparable)", f"{bmk_pct:+.2f}%", delta=None)
-                if pd.notna(delta):
-                    st.caption(("✅ Surperformance " if delta>0 else "⚠️ Sous-performance ") + f"de {abs(delta):.2f} pts")
+        c1, c2 = st.columns(2)
+        c1.metric("Performance globale", f"{tot_pct:+.2f}%")
+        c2.metric("Capital virtuel", f"{tot_val:,.2f} €")
 
-        # Tableau + suppression
-        def prox_marker(row):
-            e = row.get("entry")
-            last_p = row.get("last_close")
-            if not (np.isfinite(e) and np.isfinite(last_p) and e>0): return ""
-            prox = (last_p/e - 1)*100
-            return "🟢" if abs(prox)<=2 else ("⚠️" if abs(prox)<=5 else "🔴")
-
+        # Tableau final formaté
         show = df.copy()
-        show["Prox. entrée"] = show.apply(prox_marker, axis=1)
         show.rename(columns={
-            "name":"Société","ticker":"Ticker","entry":"Entrée (€)","target":"Objectif (€)","stop":"Stop (€)",
-            "qty":"Qté (théorique)","amount":"Montant (€)","current_value_net":"Valeur nette (€)",
-            "pnl_eur":"P&L (€)","pnl_pct":"P&L (%)","last_close":"Cours actuel (€)","horizon":"Horizon"
+            "name": "Société",
+            "ticker": "Ticker",
+            "last_close": "Cours actuel (€)",
+            "entry": "Entrée (€)",
+            "target": "Objectif (€)",
+            "stop": "Stop (€)",
+            "rendement_estime_pct": "Rendement estimé (%)",
+            "qty": "Qté",
+            "amount": "Montant initial (€)",
+            "valeur_actuelle": "Valeur actuelle (€)",
+            "pnl_pct": "P&L (%)"
         }, inplace=True)
-        # tri par P&L %
-        if "P&L (%)" in show.columns:
-            show["P&L (%)"] = show["P&L (%)"].round(2)
-            show = show.sort_values("P&L (%)", ascending=False)
 
         st.dataframe(
             show[[
-                "Société","Ticker","Cours actuel (€)","Entrée (€)","Objectif (€)","Stop (€)",
-                "Qté (théorique)","Montant (€)","Valeur nette (€)","P&L (€)","P&L (%)","Prox. entrée","Horizon","profile","added_at"
+                "Société", "Ticker", "Cours actuel (€)", "Entrée (€)", "Objectif (€)", "Stop (€)",
+                "Rendement estimé (%)", "Qté", "Montant initial (€)", "Valeur actuelle (€)", "P&L (%)"
             ]].style.format(precision=2),
             use_container_width=True, hide_index=True
         )
 
-        # Suppression ciblée
+        # Suppression d'une ligne
         st.markdown("#### 🗑 Retirer une ligne")
-        tickers_del = show["Ticker"].tolist()
-        if tickers_del:
-            colD1, colD2 = st.columns([3,1])
-            with colD1:
-                del_sel = st.selectbox("Sélectionne une ligne à retirer (par Ticker — supprime la plus récente si plusieurs)", tickers_del)
-            with colD2:
-                if st.button("Supprimer"):
-                    # On supprime la dernière occurrence de ce ticker (la plus récente)
-                    items = _load_suivi()
-                    idxs = [i for i, it in enumerate(items) if it.get("ticker")==del_sel]
-                    if idxs:
-                        # trouve la plus récente
-                        latest_idx = max(idxs, key=lambda k: items[k].get("added_at",""))
-                        it = items.pop(latest_idx)
-                        _save_suivi(items)
-                        st.success(f"Ligne retirée : {it.get('name')} ({del_sel})")
-                        time.sleep(0.6)
-                        st.rerun()
+        tickers_del = show["Ticker"].unique().tolist()
+        colA, colB = st.columns([3, 1])
+        with colA:
+            del_sel = st.selectbox("Sélectionner une ligne à retirer", tickers_del)
+        with colB:
+            if st.button("Supprimer"):
+                items = _load_suivi()
+                items = [x for x in items if x["ticker"] != del_sel]
+                _save_suivi(items)
+                st.success(f"Ligne supprimée : {del_sel}")
+                st.rerun()
+
 
 st.divider()
 
