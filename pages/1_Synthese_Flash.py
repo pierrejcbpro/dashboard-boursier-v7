@@ -197,79 +197,109 @@ else:
 
 st.divider()
 
-# ---------------- Injection IA — Idées micro-investissement (20 €)
+# ---------------- Injection IA — Idées micro-investissement (interactif)
 st.divider()
-st.subheader("💸 Injection IA — Idées micro-investissement (20 € chacun)")
+st.subheader("💸 Injection IA — Simulateur micro-investissement")
 
-if top_actions.empty:
-    st.caption("Aucune opportunité IA détectée pour injection immédiate.")
-else:
-    invest_amount = 20.0
-    fee_in = 1.0
-    fee_out = 1.0
-    total_fee = fee_in + fee_out
+st.caption("Analyse IA pour des tickets entre 7 et 30 jours avec frais inclus (1€ entrée + 1€ sortie).")
 
-    micro_rows = []
+invest_amount = st.number_input("💰 Montant d’investissement par action (€)", min_value=5.0, max_value=500.0, step=5.0, value=20.0)
+fee_in = 1.0
+fee_out = 1.0
+total_fee = fee_in + fee_out
+
+# --- IA suggestions (base)
+base_rows = []
+if not top_actions.empty:
     for _, r in top_actions.head(15).iterrows():
         entry = float(r.get("Entrée (€)", np.nan))
         target = float(r.get("Objectif (€)", np.nan))
         stop = float(r.get("Stop (€)", np.nan))
         score = float(r.get("Score IA", 50))
-
-        # prix d'achat ajusté par frais
         if not np.isfinite(entry) or not np.isfinite(target) or entry <= 0:
             continue
-        buy_price = entry + (fee_in / (invest_amount / entry))  # dilue 1€ dans le ticket
+
+        buy_price = entry + (fee_in / (invest_amount / entry))
         shares = invest_amount / buy_price
-        sell_price = target
-        brut_gain = (sell_price - buy_price) * shares
+        brut_gain = (target - buy_price) * shares
         net_gain = brut_gain - fee_out
         net_return_pct = (net_gain / invest_amount) * 100
 
-        micro_rows.append({
+        base_rows.append({
             "Société": r.get("Société") or r.get("name"),
             "Ticker": r.get("Ticker"),
             "Entrée (€)": round(entry, 2),
             "Objectif (€)": round(target, 2),
             "Stop (€)": round(stop, 2),
             "Score IA": round(score, 1),
-            "Frais totaux (€)": total_fee,
-            "Rendement net estimé (%)": round(net_return_pct, 2),
             "Durée visée": "7–30 j",
-            "Décision IA": r.get("Signal") or "Acheter"
+            "Rendement net estimé (%)": round(net_return_pct, 2)
         })
 
-    df_inject = pd.DataFrame(micro_rows)
-    if df_inject.empty:
-        st.info("Aucune action éligible à un micro-investissement rentable actuellement.")
-    else:
-        df_inject = df_inject.sort_values("Rendement net estimé (%)", ascending=False).head(5)
+df_base = pd.DataFrame(base_rows)
+if df_base.empty:
+    st.info("Aucune opportunité IA détectée pour injection immédiate.")
+    df_base = pd.DataFrame(columns=[
+        "Société","Ticker","Entrée (€)","Objectif (€)","Stop (€)",
+        "Score IA","Durée visée","Rendement net estimé (%)"
+    ])
 
-        def style_gain(v):
-            if pd.isna(v): return ""
-            if v > 5: return "background-color:#e8f5e9; color:#0b8043; font-weight:600;"
-            if v > 0: return "background-color:#fff8e1; color:#a67c00;"
-            return "background-color:#ffebee; color:#b71c1c;"
+# --- Section édition manuelle
+st.markdown("### ➕ Ajouter ou modifier tes propres lignes")
+edited = st.data_editor(
+    df_base,
+    use_container_width=True,
+    num_rows="dynamic",
+    hide_index=True,
+    key="micro_invest_editor",
+    column_config={
+        "Société": st.column_config.TextColumn("Société"),
+        "Ticker": st.column_config.TextColumn("Ticker"),
+        "Entrée (€)": st.column_config.NumberColumn("Entrée (€)", format="%.2f"),
+        "Objectif (€)": st.column_config.NumberColumn("Objectif (€)", format="%.2f"),
+        "Stop (€)": st.column_config.NumberColumn("Stop (€)", format="%.2f"),
+        "Score IA": st.column_config.NumberColumn("Score IA", format="%.1f"),
+        "Durée visée": st.column_config.SelectboxColumn("Durée visée", options=["7–30 j","<7 j","1–3 mois"]),
+        "Rendement net estimé (%)": st.column_config.NumberColumn("Rendement net estimé (%)", format="%.2f"),
+    },
+    help="Tu peux éditer ou ajouter des lignes manuellement (nouveau ticker, objectif, etc.)"
+)
 
-        st.dataframe(
-            df_inject.style
-                .applymap(style_gain, subset=["Rendement net estimé (%)"])
-                .format({
-                    "Entrée (€)":"{:.2f}",
-                    "Objectif (€)":"{:.2f}",
-                    "Stop (€)":"{:.2f}",
-                    "Frais totaux (€)":"{:.0f}",
-                    "Rendement net estimé (%)":"{:.2f}",
-                    "Score IA":"{:.1f}"
-                }),
-            use_container_width=True, hide_index=True
-        )
+# --- Recalcul automatique du rendement net en fonction du montant saisi
+if not edited.empty:
+    calc = []
+    for _, r in edited.iterrows():
+        entry = float(r.get("Entrée (€)", np.nan))
+        target = float(r.get("Objectif (€)", np.nan))
+        if not np.isfinite(entry) or not np.isfinite(target) or entry <= 0:
+            calc.append(np.nan)
+            continue
+        buy_price = entry + (fee_in / (invest_amount / entry))
+        shares = invest_amount / buy_price
+        brut_gain = (target - buy_price) * shares
+        net_gain = brut_gain - fee_out
+        net_return_pct = (net_gain / invest_amount) * 100
+        calc.append(round(net_return_pct, 2))
+    edited["Rendement net estimé (%)"] = calc
 
-        best = df_inject.iloc[0]
-        st.success(
-            f"👉 **Meilleure idée IA : {best['Société']} ({best['Ticker']})** — "
-            f"rendement net estimé **{best['Rendement net estimé (%)']:+.2f}%** sur 7–30 jours."
-        )
+    # --- Affichage stylé
+    def style_gain(v):
+        if pd.isna(v): return ""
+        if v > 5: return "background-color:#e8f5e9; color:#0b8043; font-weight:600;"
+        if v > 0: return "background-color:#fff8e1; color:#a67c00;"
+        return "background-color:#ffebee; color:#b71c1c;"
+
+    styled = edited.style.applymap(style_gain, subset=["Rendement net estimé (%)"])
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    best = edited.loc[edited["Rendement net estimé (%)"].idxmax()]
+    st.success(
+        f"💡 **Idée optimale : {best['Société']} ({best['Ticker']})** — "
+        f"rendement net estimé **{best['Rendement net estimé (%)']:+.2f}%** "
+        f"pour un ticket de **{invest_amount:.0f} €** sur {best['Durée visée']}."
+    )
+else:
+    st.caption("Ajoute une ou plusieurs lignes ci-dessus pour simuler ton investissement.")
 
 
 # ---------------- Charts simples ----------------
