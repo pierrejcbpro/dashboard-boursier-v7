@@ -1,118 +1,57 @@
 # -*- coding: utf-8 -*-
 """
-v7.7 — Suivi Virtuel IA
-Simulateur de portefeuille IA (papier trading)
+v7.8 — Suivi Virtuel IA
 - Ajout automatique depuis Synthèse Flash
-- Montant et frais personnalisés
-- Calcul rendement net estimé et P&L %
-- Comparaison CAC 40
-- Corrigé JSON + compatibilité totale Streamlit Cloud
+- Suppression de lignes
+- Comparatif CAC40
 """
-
 import os, json, pandas as pd, numpy as np, streamlit as st, altair as alt
 from lib import fetch_prices, compute_metrics, company_name_from_ticker
 
-# ---------------- CONFIG ----------------
 st.set_page_config(page_title="Suivi Virtuel", page_icon="💰", layout="wide")
-st.title("💰 Suivi Virtuel — Portefeuille d’investissement IA")
+st.title("💰 Suivi Virtuel — Portefeuille IA (papier trading)")
 
 DATA_PATH = "data/suivi_virtuel.json"
 os.makedirs("data", exist_ok=True)
-
 BASE_COLUMNS = [
     "Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
     "Qté","Montant Initial (€)","Valeur (€)","P&L (%)","Rendement Net Estimé (%)"
 ]
-
 if not os.path.exists(DATA_PATH):
     pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-
 try:
     pf = pd.read_json(DATA_PATH)
 except Exception:
     pf = pd.DataFrame(columns=BASE_COLUMNS)
 
-# ---------------- BARRE D’ACTIONS ----------------
-cols = st.columns(4)
-with cols[0]:
-    if st.button("💾 Sauvegarder", key="save_pf"):
-        pf.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-        st.success("✅ Sauvegardé.")
-with cols[1]:
-    if st.button("🗑 Réinitialiser", key="reset_pf"):
-        try:
-            os.remove(DATA_PATH)
-        except FileNotFoundError:
-            pass
-        pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2)
-        st.success("♻️ Réinitialisé.")
-        st.rerun()
-with cols[2]:
-    st.download_button(
-        "⬇️ Exporter JSON",
-        json.dumps(pf.to_dict(orient="records"), ensure_ascii=False, indent=2, default=str),
-        file_name="suivi_virtuel.json",
-        mime="application/json",
-        key="exp_pf"
-    )
-with cols[3]:
-    up = st.file_uploader("📥 Importer JSON", type=["json"], label_visibility="collapsed", key="imp_pf")
-    if up:
-        try:
-            imp = pd.DataFrame(json.load(up))
-            for c in BASE_COLUMNS:
-                if c not in imp.columns:
-                    imp[c] = np.nan
-            imp.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-            st.success("✅ Importé."); st.rerun()
-        except Exception as e:
-            st.error(f"Erreur import : {e}")
-
-st.divider()
-
-# ---------------- AJOUT MANUEL ----------------
-with st.expander("➕ Ajouter une ligne manuellement"):
-    c1, c2, c3 = st.columns(3)
+# --- Supprimer / vider
+st.subheader("🧹 Gestion du portefeuille virtuel")
+if not pf.empty:
+    choix_supp = st.multiselect("Sélectionne les lignes à supprimer :", pf["Société"].tolist())
+    c1, c2 = st.columns(2)
     with c1:
-        ticker = st.text_input("Ticker", "")
-    with c2:
-        montant = st.number_input("Montant à investir (€)", min_value=10.0, step=10.0, value=20.0)
-    with c3:
-        cours = st.number_input("Cours actuel (€)", min_value=0.01, step=0.01)
-
-    if st.button("Ajouter au suivi virtuel", key="add_manual"):
-        if ticker and montant and cours:
-            soc = company_name_from_ticker(ticker)
-            qte = (montant - 1) / cours  # 1€ de frais achat
-            pf = pd.concat([
-                pf,
-                pd.DataFrame([{
-                    "Société": soc, "Ticker": ticker, "Cours (€)": cours,
-                    "Entrée (€)": cours, "Objectif (€)": cours * 1.07,
-                    "Stop (€)": cours * 0.97, "Qté": qte,
-                    "Montant Initial (€)": montant, "Valeur (€)": montant,
-                    "P&L (%)": 0.0, "Rendement Net Estimé (%)": 0.0
-                }])
-            ], ignore_index=True)
+        if st.button("🗑 Supprimer sélection", key="del_rows"):
+            pf = pf[~pf["Société"].isin(choix_supp)]
             pf.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-            st.success(f"Ajouté : {soc} ({ticker})")
-            st.rerun()
+            st.success("✅ Lignes supprimées."); st.rerun()
+    with c2:
+        if st.button("♻️ Tout vider", key="wipe_all_rows"):
+            pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
+            st.warning("🧹 Portefeuille vidé."); st.rerun()
 
 st.divider()
 
-# ---------------- ANALYSE & MISE À JOUR ----------------
 if pf.empty:
-    st.info("Aucune position virtuelle. Ajoute une ligne ci-dessus ou depuis Synthèse Flash.")
+    st.info("Aucune position virtuelle. Ajoute-en depuis Synthèse Flash.")
     st.stop()
 
-# ✅ Sécurisation du schéma de colonnes
+# --- Colonnes manquantes
 for col in BASE_COLUMNS:
     if col not in pf.columns:
         pf[col] = np.nan
 
-# Si le fichier JSON est vide ou sans tickers, on arrête proprement
 if "Ticker" not in pf.columns or pf["Ticker"].dropna().empty:
-    st.info("Aucune ligne valide (Ticker manquant). Ajoute une valeur pour commencer.")
+    st.info("Aucune ligne valide (Ticker manquant).")
     st.stop()
 
 tickers = pf["Ticker"].dropna().astype(str).unique().tolist()
@@ -120,105 +59,60 @@ hist = fetch_prices(tickers, days=90)
 met = compute_metrics(hist)
 merged = pf.merge(met, on="Ticker", how="left")
 
-rows = []
+rows=[]
 for _, r in merged.iterrows():
-    ticker = r["Ticker"]
+    tkr = r["Ticker"]
     px = r.get("Close", np.nan)
-    soc = r.get("Société") or company_name_from_ticker(ticker)
+    if not np.isfinite(px): continue
     entry = r.get("Entrée (€)", np.nan)
     qte = r.get("Qté", 0)
-    montant_init = r.get("Montant Initial (€)", np.nan)
-    if not np.isfinite(px) or not np.isfinite(entry) or entry == 0:
-        continue
-
-    val = px * qte
-    pnl = ((px / entry) - 1) * 100
-    rend_est = ((r["Objectif (€)"] / entry) - 1) * 100 - ((2 / montant_init) * 100)  # 2€ de frais
-
+    init = r.get("Montant Initial (€)", 0)
+    if not np.isfinite(entry) or entry==0: continue
+    soc = r.get("Société") or company_name_from_ticker(tkr)
+    val = px*qte
+    pnl = ((px/entry)-1)*100
+    rend_est = ((r["Objectif (€)"]/entry)-1)*100 - (2/init)*100
     rows.append({
-        "Société": soc,
-        "Ticker": ticker,
-        "Cours (€)": round(px, 2),
-        "Entrée (€)": round(entry, 2),
-        "Objectif (€)": round(r["Objectif (€)"], 2),
-        "Stop (€)": round(r["Stop (€)"], 2),
-        "Qté": round(qte, 2),
-        "Montant Initial (€)": round(montant_init, 2),
-        "Valeur (€)": round(val, 2),
-        "P&L (%)": round(pnl, 2),
-        "Rendement Net Estimé (%)": round(rend_est, 2)
+        "Société": soc, "Ticker": tkr,
+        "Cours (€)": round(px,2), "Entrée (€)": round(entry,2),
+        "Objectif (€)": round(r["Objectif (€)"],2), "Stop (€)": round(r["Stop (€)"],2),
+        "Qté": round(qte,2), "Montant Initial (€)": round(init,2),
+        "Valeur (€)": round(val,2), "P&L (%)": round(pnl,2), "Rendement Net Estimé (%)": round(rend_est,2)
     })
 
 out = pd.DataFrame(rows)
 if out.empty:
-    st.info("Aucune donnée actualisée. Vérifie les tickers.")
+    st.info("Aucune donnée actualisée.")
     st.stop()
 
-st.subheader("🧹 Gestion du portefeuille virtuel")
-
-if not out.empty:
-    choix_supp = st.multiselect("Sélectionne les lignes à supprimer :", out["Société"].tolist(), key="supp_rows")
-    c1, c2 = st.columns([1,1])
-    with c1:
-        if st.button("🗑 Supprimer les lignes sélectionnées", key="del_rows"):
-            pf = pf[~pf["Société"].isin(choix_supp)]
-            pf.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-            st.success("✅ Lignes supprimées.")
-            st.rerun()
-    with c2:
-        if st.button("♻️ Tout vider", key="wipe_all_rows"):
-            pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-            st.warning("🧹 Portefeuille virtuel vidé.")
-            st.rerun()
-
-
-# ---------------- TABLEAU PRINCIPAL ----------------
+# --- Tableau principal
 def color_pnl(v):
     if pd.isna(v): return ""
     if v > 0: return "background-color:#e6f4ea; color:#0b8043"
     if v < 0: return "background-color:#ffebee; color:#b71c1c"
     return ""
 
-st.subheader("📈 Suivi de performance virtuelle")
-st.dataframe(
-    out.style
-        .applymap(color_pnl, subset=["P&L (%)","Rendement Net Estimé (%)"]),
-    use_container_width=True, hide_index=True
-)
+st.dataframe(out.style.applymap(color_pnl, subset=["P&L (%)","Rendement Net Estimé (%)"]),
+             use_container_width=True, hide_index=True)
 
-# ---------------- SYNTHÈSE ----------------
+# --- Synthèse
 tot_val = out["Valeur (€)"].sum()
 tot_init = out["Montant Initial (€)"].sum()
 perf = ((tot_val / tot_init) - 1) * 100 if tot_init else 0
-
 st.markdown(f"""
 ### 📊 Synthèse
 **Investi :** {tot_init:.2f} €  
 **Valeur actuelle :** {tot_val:.2f} €  
-**Performance globale :** {perf:+.2f} %
+**Performance :** {perf:+.2f} %
 """)
 
-st.divider()
-
-# ---------------- COMPARAISON CAC 40 ----------------
-st.subheader("📈 Comparatif CAC 40")
+# --- Comparatif CAC40
 hist_bmk = fetch_prices(["^FCHI"], days=90)
 if not hist_bmk.empty and "Close" in hist_bmk.columns:
-    df_bmk = hist_bmk.groupby("Date")["Close"].mean().pct_change().cumsum() * 100
+    df_bmk = hist_bmk.groupby("Date")["Close"].mean().pct_change().cumsum()*100
     perf_bmk = df_bmk.iloc[-1]
     diff = perf - perf_bmk
     if diff > 0:
-        st.success(f"✅ Votre portefeuille virtuel surperforme le CAC 40 de {diff:+.2f} %.")
+        st.success(f"✅ Portefeuille virtuel surperforme le CAC40 de {diff:+.2f}%.")
     else:
-        st.warning(f"⚠️ Votre portefeuille virtuel sous-performe le CAC 40 de {abs(diff):.2f} %.")
-else:
-    st.caption("Données CAC 40 non disponibles pour la comparaison.")
-
-chart = alt.Chart(out).mark_bar().encode(
-    x="Société:N",
-    y="P&L (%):Q",
-    color=alt.condition(alt.datum["P&L (%)"] > 0,
-                        alt.value("#0b8043"), alt.value("#b71c1c")),
-    tooltip=list(out.columns)
-).properties(height=320, title="Performance individuelle (%)")
-st.altair_chart(chart, use_container_width=True)
+        st.warning(f"⚠️ Portefeuille virtuel sous-performe le CAC40 de {abs(diff):.2f}%.")
