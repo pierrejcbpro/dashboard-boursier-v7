@@ -154,6 +154,24 @@ if out.empty:
     st.info("Aucune donnée actualisée. Vérifie les tickers.")
     st.stop()
 
+st.subheader("🧹 Gestion du portefeuille virtuel")
+
+if not out.empty:
+    choix_supp = st.multiselect("Sélectionne les lignes à supprimer :", out["Société"].tolist(), key="supp_rows")
+    c1, c2 = st.columns([1,1])
+    with c1:
+        if st.button("🗑 Supprimer les lignes sélectionnées", key="del_rows"):
+            pf = pf[~pf["Société"].isin(choix_supp)]
+            pf.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
+            st.success("✅ Lignes supprimées.")
+            st.rerun()
+    with c2:
+        if st.button("♻️ Tout vider", key="wipe_all_rows"):
+            pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
+            st.warning("🧹 Portefeuille virtuel vidé.")
+            st.rerun()
+
+
 # ---------------- TABLEAU PRINCIPAL ----------------
 def color_pnl(v):
     if pd.isna(v): return ""
