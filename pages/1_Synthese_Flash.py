@@ -407,6 +407,8 @@ else:
                         time.sleep(0.6)
                         st.rerun()
 
+
+
 # ---------------- 📰 Actualités ----------------
 st.markdown("### 📰 Actualités principales")
 def short_news(row):
