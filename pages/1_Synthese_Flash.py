@@ -120,59 +120,88 @@ if top_actions.empty:
 else:
     df = top_actions.copy()
 
-    # --- Normalisation des colonnes (Ticker / Société / Prix)
-    # On couvre tous les cas possibles renvoyés par select_top_actions
-    if "Ticker" not in df.columns:
-        for k in ["Symbole","symbol","ticker"]:
-            if k in df.columns:
-                df["Ticker"] = df[k]
-                break
-    if "Société" not in df.columns:
-        for k in ["name","shortname","Société"]:
-            if k in df.columns:
-                df["Société"] = df[k]
-                break
-    if "Cours (€)" not in df.columns:
-        if "Close" in df.columns: df["Cours (€)"] = df["Close"]
+    # --- Normalisation des colonnes
+    rename_map = {
+        "symbol": "Ticker",
+        "ticker": "Ticker",
+        "name": "Société",
+        "shortname": "Société",
+        "Close": "Cours (€)"
+    }
+    for old, new in rename_map.items():
+        if old in df.columns and new not in df.columns:
+            df[new] = df[old]
 
-    # Colonnes indispensables
-    needed = ["Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)","Proximité (%)","Signal"]
-    for c in needed:
-        if c not in df.columns: df[c] = np.nan
+    # --- Calculs IA complémentaires
+    for ma in ["MA20","MA50","MA120","MA240"]:
+        if ma not in df.columns: df[ma] = np.nan
 
-    # Signal Entrée si manquant
-    if "Signal Entrée" not in df.columns:
-        def proximity_marker(v):
-            if pd.isna(v): return "⚪"
-            if abs(v) <= 2: return "🟢"
-            elif abs(v) <= 5: return "⚠️"
-            else: return "🔴"
-        df["Signal Entrée"] = df["Proximité (%)"].apply(proximity_marker)
+    # Tendance MT (MA20 vs MA50)
+    df["Tendance MT"] = np.where(df["MA20"] > df["MA50"], "🌱", 
+                          np.where(df["MA20"] < df["MA50"], "🌧", "⚖️"))
+    # Tendance LT (MA120 vs MA240)
+    df["Tendance LT"] = np.where(df["MA120"] > df["MA240"], "🌱", 
+                          np.where(df["MA120"] < df["MA240"], "🌧", "⚖️"))
 
-    # Colonnes d’affichage
-    disp_cols = ["Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)","Proximité (%)","Signal Entrée"]
-    # Nettoyage duplication et ordre
-    df = df.loc[:, ~df.columns.duplicated()]
-    miss = [c for c in disp_cols if c not in df.columns]
-    for m in miss: df[m] = np.nan
+    # Score IA combiné (écarts MA)
+    df["Score IA"] = np.nan
+    cond = df[["MA20","MA50","MA120","MA240"]].notna().all(axis=1)
+    df.loc[cond, "Score IA"] = 100 - ((abs(df["MA20"]-df["MA50"]) + abs(df["MA120"]-df["MA240"])) * 10).clip(0,100)
 
-    # Styles
+    # --- Décision IA simulée (si non fournie)
+    if "Décision IA" not in df.columns:
+        def decision_from_ma(r):
+            if r["MA20"] > r["MA50"] and r["MA120"] > r["MA240"]: return "Acheter"
+            if r["MA20"] < r["MA50"] and r["MA120"] < r["MA240"]: return "Vendre"
+            return "Surveiller"
+        df["Décision IA"] = df.apply(decision_from_ma, axis=1)
+
+    # --- Proximité et signal emoji
+    if "Proximité (%)" not in df.columns:
+        df["Proximité (%)"] = np.nan
+        mask = df[["Cours (€)","Entrée (€)"]].notna().all(axis=1)
+        df.loc[mask,"Proximité (%)"] = ((df.loc[mask,"Cours (€)"]/df.loc[mask,"Entrée (€)"])-1)*100
+
+    def proximity_marker(v):
+        if pd.isna(v): return "⚪"
+        if abs(v) <= 2: return "🟢"
+        elif abs(v) <= 5: return "⚠️"
+        else: return "🔴"
+    df["Signal Entrée"] = df["Proximité (%)"].apply(proximity_marker)
+
+    # --- Ordre final d’affichage
+    disp_cols = [
+        "Indice","Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
+        "MA20","MA50","MA120","MA240",
+        "Tendance MT","Tendance LT","Score IA","Décision IA","Proximité (%)","Signal Entrée"
+    ]
+    for c in disp_cols:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    # --- Styles
+    def style_dec(v):
+        if pd.isna(v): return ""
+        if "Acheter" in v: return "background-color:rgba(0,200,0,0.15); font-weight:600;"
+        if "Vendre" in v: return "background-color:rgba(255,0,0,0.15); font-weight:600;"
+        if "Surveiller" in v: return "background-color:rgba(0,100,255,0.1); font-weight:600;"
+        return ""
     def style_prox(v):
         if pd.isna(v): return ""
         if abs(v) <= 2:  return "background-color:#e8f5e9; color:#0b8043; font-weight:600;"
         if abs(v) <= 5:  return "background-color:#fff8e1; color:#a67c00;"
         return "background-color:#ffebee; color:#b71c1c;"
-    def style_dec(val):
-        if pd.isna(val): return ""
-        if "Acheter" in str(val): return "background-color:rgba(0,200,0,0.15); font-weight:600;"
-        if "Éviter" in str(val):  return "background-color:rgba(255,0,0,0.15); font-weight:600;"
-        if "Surveiller" in str(val): return "background-color:rgba(0,100,255,0.1); font-weight:600;"
-        return ""
 
+    # --- Affichage tableau
     st.dataframe(
-        df[disp_cols].round(2).style.applymap(style_prox, subset=["Proximité (%)"]),
+        df[disp_cols].style
+            .applymap(style_dec, subset=["Décision IA"])
+            .applymap(style_prox, subset=["Proximité (%)"]),
         use_container_width=True, hide_index=True
     )
+
+    st.markdown(f"📊 Moyenne Score IA : **{df['Score IA'].mean():.1f}/100** — Actions proches des entrées idéales : **{(df['Signal Entrée']=='🟢').sum()}** / 10")
+
 
 st.divider()
 
