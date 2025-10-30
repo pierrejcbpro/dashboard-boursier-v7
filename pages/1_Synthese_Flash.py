@@ -120,35 +120,52 @@ if top_actions.empty:
 else:
     df = top_actions.copy()
 
-    # --- Normalisation des colonnes
+    # --- Normalisation et nettoyage complet
+    # 1️⃣ Assure la présence de Société / Ticker / Indice / Cours (€)
     rename_map = {
-        "symbol": "Ticker",
-        "ticker": "Ticker",
-        "name": "Société",
-        "shortname": "Société",
+        "symbol": "Ticker", "ticker": "Ticker", "Symbole": "Ticker",
+        "name": "Société", "shortname": "Société",
         "Close": "Cours (€)"
     }
     for old, new in rename_map.items():
         if old in df.columns and new not in df.columns:
             df[new] = df[old]
 
-    # --- Calculs IA complémentaires
+    # Si aucune colonne ticker trouvée
+    if "Ticker" not in df.columns:
+        df["Ticker"] = df.index.astype(str)
+
+    # Si aucune colonne Indice trouvée
+    if "Indice" not in df.columns:
+        for k in ["index", "Market", "Indice"]:
+            if k in df.columns:
+                df["Indice"] = df[k]
+                break
+        else:
+            df["Indice"] = "—"
+
+    # Nettoyage None / NaN texte
+    df["Société"] = df["Société"].fillna("—").astype(str)
+    df["Ticker"] = df["Ticker"].fillna("—").astype(str)
+    df["Indice"] = df["Indice"].fillna("—").astype(str)
+
+    # --- Ajoute les colonnes techniques manquantes
     for ma in ["MA20","MA50","MA120","MA240"]:
         if ma not in df.columns: df[ma] = np.nan
+    for col in ["Entrée (€)","Objectif (€)","Stop (€)","Cours (€)"]:
+        if col not in df.columns: df[col] = np.nan
 
-    # Tendance MT (MA20 vs MA50)
-    df["Tendance MT"] = np.where(df["MA20"] > df["MA50"], "🌱", 
+    # --- Calcul des tendances et du Score IA
+    df["Tendance MT"] = np.where(df["MA20"] > df["MA50"], "🌱",
                           np.where(df["MA20"] < df["MA50"], "🌧", "⚖️"))
-    # Tendance LT (MA120 vs MA240)
-    df["Tendance LT"] = np.where(df["MA120"] > df["MA240"], "🌱", 
+    df["Tendance LT"] = np.where(df["MA120"] > df["MA240"], "🌱",
                           np.where(df["MA120"] < df["MA240"], "🌧", "⚖️"))
 
-    # Score IA combiné (écarts MA)
     df["Score IA"] = np.nan
     cond = df[["MA20","MA50","MA120","MA240"]].notna().all(axis=1)
     df.loc[cond, "Score IA"] = 100 - ((abs(df["MA20"]-df["MA50"]) + abs(df["MA120"]-df["MA240"])) * 10).clip(0,100)
 
-    # --- Décision IA simulée (si non fournie)
+    # --- Décision IA simulée si manquante
     if "Décision IA" not in df.columns:
         def decision_from_ma(r):
             if r["MA20"] > r["MA50"] and r["MA120"] > r["MA240"]: return "Acheter"
@@ -156,7 +173,7 @@ else:
             return "Surveiller"
         df["Décision IA"] = df.apply(decision_from_ma, axis=1)
 
-    # --- Proximité et signal emoji
+    # --- Proximité + signal emoji
     if "Proximité (%)" not in df.columns:
         df["Proximité (%)"] = np.nan
         mask = df[["Cours (€)","Entrée (€)"]].notna().all(axis=1)
@@ -169,17 +186,16 @@ else:
         else: return "🔴"
     df["Signal Entrée"] = df["Proximité (%)"].apply(proximity_marker)
 
-    # --- Ordre final d’affichage
+    # --- Ordonne les colonnes pour affichage clair
     disp_cols = [
         "Indice","Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
         "MA20","MA50","MA120","MA240",
         "Tendance MT","Tendance LT","Score IA","Décision IA","Proximité (%)","Signal Entrée"
     ]
     for c in disp_cols:
-        if c not in df.columns:
-            df[c] = np.nan
+        if c not in df.columns: df[c] = np.nan
 
-    # --- Styles
+    # --- Mise en forme
     def style_dec(v):
         if pd.isna(v): return ""
         if "Acheter" in v: return "background-color:rgba(0,200,0,0.15); font-weight:600;"
@@ -192,7 +208,6 @@ else:
         if abs(v) <= 5:  return "background-color:#fff8e1; color:#a67c00;"
         return "background-color:#ffebee; color:#b71c1c;"
 
-    # --- Affichage tableau
     st.dataframe(
         df[disp_cols].style
             .applymap(style_dec, subset=["Décision IA"])
@@ -200,7 +215,10 @@ else:
         use_container_width=True, hide_index=True
     )
 
-    st.markdown(f"📊 Moyenne Score IA : **{df['Score IA'].mean():.1f}/100** — Actions proches des entrées idéales : **{(df['Signal Entrée']=='🟢').sum()}** / 10")
+    st.markdown(
+        f"📊 **Moyenne Score IA :** {df['Score IA'].mean():.1f}/100 — "
+        f"**Actions proches des entrées idéales :** {(df['Signal Entrée']=='🟢').sum()} / {len(df)}"
+    )
 
 
 st.divider()
