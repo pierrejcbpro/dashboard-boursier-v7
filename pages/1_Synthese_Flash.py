@@ -363,28 +363,40 @@ else:
         c2.metric("Capital virtuel", f"{tot_val:,.2f} €")
 
         # Tableau final formaté
-        show = df.copy()
-        show.rename(columns={
-            "name": "Société",
-            "ticker": "Ticker",
-            "last_close": "Cours actuel (€)",
-            "entry": "Entrée (€)",
-            "target": "Objectif (€)",
-            "stop": "Stop (€)",
-            "rendement_estime_pct": "Rendement estimé (%)",
-            "qty": "Qté",
-            "amount": "Montant initial (€)",
-            "valeur_actuelle": "Valeur actuelle (€)",
-            "pnl_pct": "P&L (%)"
-        }, inplace=True)
+show = df.copy()
+show.rename(columns={
+    "name": "Société",
+    "ticker": "Ticker",
+    "last_close": "Cours actuel (€)",
+    "entry": "Entrée (€)",
+    "target": "Objectif (€)",
+    "stop": "Stop (€)",
+    "rendement_estime_pct": "Rendement estimé (%)",
+    "qty": "Qté",
+    "amount": "Montant initial (€)",
+    "valeur_actuelle": "Valeur actuelle (€)",
+    "pnl_pct": "P&L (%)"
+}, inplace=True)
 
-        st.dataframe(
-            show[[
-                "Société", "Ticker", "Cours actuel (€)", "Entrée (€)", "Objectif (€)", "Stop (€)",
-                "Rendement estimé (%)", "Qté", "Montant initial (€)", "Valeur actuelle (€)", "P&L (%)"
-            ]].style.format(precision=2),
-            use_container_width=True, hide_index=True
-        )
+# 🔹 Supprime les doublons éventuels
+show.columns = pd.io.parsers.ParserBase({'names': show.columns})._maybe_dedup_names(show.columns)
+
+# 🔹 Vérifie que toutes les colonnes nécessaires existent
+expected_cols = [
+    "Société", "Ticker", "Cours actuel (€)", "Entrée (€)", "Objectif (€)", "Stop (€)",
+    "Rendement estimé (%)", "Qté", "Montant initial (€)", "Valeur actuelle (€)", "P&L (%)"
+]
+for c in expected_cols:
+    if c not in show.columns:
+        show[c] = np.nan
+
+# 🔹 Affichage Streamlit
+st.dataframe(
+    show[expected_cols].style.format(precision=2),
+    use_container_width=True,
+    hide_index=True
+)
+
 
         # Suppression d'une ligne
         st.markdown("#### 🗑 Retirer une ligne")
