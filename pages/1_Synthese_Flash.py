@@ -319,22 +319,26 @@ with tabs[1]:
             use_container_width=True, hide_index=True
         )
 
-        # Suppression de lignes
+               # Suppression de lignes
         st.markdown("### 🧹 Gérer les lignes")
         for i, r in sv.reset_index().iterrows():
-            c1, c2, c3 = st.columns([6,2,2])
+            c1, c2 = st.columns([8,2])
             c1.caption(f"{r.get('name','?')} ({r.get('ticker','?')}) — Ajouté le {r.get('added_at','')[:10]}")
             if c2.button("🗑 Supprimer", key=f"del_{i}"):
                 lst = load_suivi()
                 if 0 <= i < len(lst):
                     lst.pop(i)
                     save_suivi(lst)
-                    st.success("Ligne supprimée.")
+                    st.success(f"Ligne supprimée : {r.get('name')} ({r.get('ticker')})")
                     st.experimental_rerun()
-            if c3.button("♻️ Vider tout", key="wipe_all"):
-                save_suivi([])
-                st.success("Suivi virtuel vidé.")
-                st.experimental_rerun()
+
+        # ✅ Bouton “Vider tout” déplacé en dehors de la boucle
+        st.markdown("---")
+        if st.button("♻️ Vider tout le suivi virtuel", key="wipe_all_global"):
+            save_suivi([])
+            st.success("Tout le suivi virtuel a été vidé.")
+            st.experimental_rerun()
+
 
 st.divider()
 
