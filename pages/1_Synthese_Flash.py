@@ -247,22 +247,43 @@ st.markdown("### 🧠 Sélection IA (ajout au suivi virtuel)")
 if top_actions.empty:
     st.info("Aucune opportunité IA disponible pour ajout.")
 else:
-    # Table simplifiée des opportunités
-    mini = top_actions[["Société", "Symbole", "Cours (€)", "Entrée (€)", "Objectif (€)", "Stop (€)", "Proximité (%)", "Signal", "IA_Score"]].copy()
-    mini.rename(columns={"Symbole": "Ticker"}, inplace=True)
+    # ✅ Correction : détection dynamique des colonnes disponibles
+    df_cols = list(top_actions.columns)
+    rename_map = {}
+    if "name" in df_cols: rename_map["name"] = "Société"
+    if "Ticker" in df_cols: rename_map["Ticker"] = "Symbole"
+    if "Symbol" in df_cols: rename_map["Symbol"] = "Symbole"
+    top_actions = top_actions.rename(columns=rename_map)
+
+    # Ajout colonne manquante IA_Score si besoin
+    if "IA_Score" not in top_actions.columns:
+        top_actions["IA_Score"] = np.nan
+
+    # Liste finale sécurisée
+    keep_cols = [
+        c for c in [
+            "Société", "Symbole", "Cours (€)", "Entrée (€)",
+            "Objectif (€)", "Stop (€)", "Proximité (%)",
+            "Signal", "IA_Score"
+        ] if c in top_actions.columns
+    ]
+    mini = top_actions[keep_cols].copy()
 
     for i, r in mini.iterrows():
         with st.container():
             cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1.2, 1.2, 1.2])
-            cols[0].markdown(f"**{r['Société']}** (`{r['Ticker']}`)")
-            cols[1].markdown(f"💶 **{r['Cours (€)']:.2f} €**")
-            cols[2].markdown(f"🎯 Entrée : **{r['Entrée (€)']:.2f} €**")
-            cols[3].markdown(f"🎯 Objectif : **{r['Objectif (€)']:.2f} €**")
-            cols[4].markdown(f"🛑 Stop : **{r['Stop (€)']:.2f} €**")
+            cols[0].markdown(f"**{r.get('Société','?')}** (`{r.get('Symbole','?')}`)")
+            cols[1].markdown(f"💶 **{r.get('Cours (€)', np.nan):.2f} €**" if pd.notna(r.get("Cours (€)")) else "—")
+            cols[2].markdown(f"🎯 Entrée : **{r.get('Entrée (€)', np.nan):.2f} €**" if pd.notna(r.get("Entrée (€)")) else "—")
+            cols[3].markdown(f"🎯 Objectif : **{r.get('Objectif (€)', np.nan):.2f} €**" if pd.notna(r.get("Objectif (€)")) else "—")
+            cols[4].markdown(f"🛑 Stop : **{r.get('Stop (€)', np.nan):.2f} €**" if pd.notna(r.get("Stop (€)")) else "—")
 
             prox = r.get("Proximité (%)", np.nan)
-            emoji = "🟢" if abs(prox) <= 2 else ("⚠️" if abs(prox) <= 5 else "🔴")
-            cols[5].markdown(f"📏 {prox:+.2f}% {emoji}" if pd.notna(prox) else "📏 —")
+            if pd.notna(prox):
+                emoji = "🟢" if abs(prox) <= 2 else ("⚠️" if abs(prox) <= 5 else "🔴")
+                cols[5].markdown(f"📏 {prox:+.2f}% {emoji}")
+            else:
+                cols[5].markdown("📏 —")
 
             score = r.get("IA_Score", np.nan)
             if pd.notna(score):
@@ -270,22 +291,22 @@ else:
             else:
                 cols[6].markdown("🧮 Score IA : —")
 
-            # Bouton ajout
+            # ✅ Ajout bouton d'investissement virtuel
             if cols[7].button("➕ Ajouter", key=f"add_{i}"):
                 try:
                     items = _load_suivi()
-                    entry = float(r["Entrée (€)"]) if pd.notna(r["Entrée (€)"]) else float(r["Cours (€)"])
+                    entry = float(r.get("Entrée (€)") or r.get("Cours (€)") or np.nan)
+                    target = float(r.get("Objectif (€)") or np.nan)
+                    stop = float(r.get("Stop (€)") or np.nan)
                     fees_in, fees_out = 1.0, 1.0
                     net_capital = max(montant - fees_in, 0.0)
                     qty = net_capital / entry if entry > 0 else 0.0
-                    target, stop = float(r["Objectif (€)"]), float(r["Stop (€)"])
 
-                    # Rendement net estimé
                     rend_net = ((target - entry) / entry * 100) - (2 / entry * 100) if np.isfinite(entry) and np.isfinite(target) else np.nan
 
                     items.append({
-                        "ticker": str(r["Ticker"]),
-                        "name": str(r["Société"]),
+                        "ticker": str(r.get("Symbole")),
+                        "name": str(r.get("Société")),
                         "entry": round(entry, 4),
                         "target": target,
                         "stop": stop,
@@ -300,7 +321,7 @@ else:
                         "horizon": horizon_txt
                     })
                     _save_suivi(items)
-                    st.success(f"Ajouté au suivi virtuel : {r['Société']} ({r['Ticker']}) — {montant:.2f} €")
+                    st.success(f"Ajouté au suivi virtuel : {r.get('Société')} ({r.get('Symbole')}) — {montant:.2f} €")
                 except Exception as e:
                     st.error(f"Erreur lors de l’ajout : {e}")
 
