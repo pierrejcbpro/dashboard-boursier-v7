@@ -166,5 +166,12 @@
     "Qty": 0.08620599999999999,
     "PRU": 20.18,
     "Name": "Sony Financial Group Inc.     R"
+  },
+  {
+    "Ticker": "MT.AS",
+    "Type": "CTO",
+    "Qty": 1.203369,
+    "PRU": 34.07,
+    "Name": "ARCELORMITTAL SA"
   }
 ]
