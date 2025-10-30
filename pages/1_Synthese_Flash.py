@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-v7.6 — Synthèse Flash IA
-Basée sur ta version stable v6.9, avec :
-- 🧠 Score IA combiné (MA20/50 + MA120/240)
-- 🌱 Indicateurs long terme (tendance LT)
-- 💡 Proximité et Signal IA identiques à V6.9
-- ✅ Compatible avec lib v7.6
+v7.6 — Synthèse Flash IA (structure V6.9 conservée)
+- Score IA combiné (MA20/50 + MA120/240) si dispo, sinon fallback local
+- Tendance long terme (LT) 🌱 / 🌧 / ⚖️ dérivée de MA120 vs MA240
+- Proximité & signal d’entrée identiques à V6.9
+- Compatible lib v7.6 (compute_metrics / select_top_actions / news_summary)
 """
 import streamlit as st, pandas as pd, numpy as np, altair as alt
 from lib import (
@@ -21,8 +20,10 @@ st.title("⚡ Synthèse Flash — Marché Global (IA enrichie)")
 periode = st.sidebar.radio("Période d’analyse", ["Jour","7 jours","30 jours"], index=0)
 value_col = {"Jour":"pct_1d","7 jours":"pct_7d","30 jours":"pct_30d"}[periode]
 
-profil = st.sidebar.radio("Profil IA", ["Prudent","Neutre","Agressif"], 
-                          index=["Prudent","Neutre","Agressif"].index(load_profile()))
+profil = st.sidebar.radio(
+    "Profil IA", ["Prudent","Neutre","Agressif"],
+    index=["Prudent","Neutre","Agressif"].index(load_profile())
+)
 if st.sidebar.button("💾 Mémoriser le profil"):
     save_profile(profil)
     st.sidebar.success("Profil sauvegardé.")
@@ -36,23 +37,53 @@ include_ls = st.sidebar.checkbox("🧠 LS Exchange (perso)", value=False)
 # ---------------- Données marchés ----------------
 MARKETS = []
 if include_eu: MARKETS += [("CAC 40", None), ("DAX", None)]
-if include_us: MARKETS += [("NASDAQ 100", None), ("S&P 500", None)]
-if include_ls: MARKETS += [("LS Exchange", None)]
+if include_us: MARKETS += [("NASDAQ 100", None), ("S&P 500", None)]  # S&P 500 ignoré si non supporté par lib
+if include_ls: MARKETS += [("LS Exchange", None)]                     # idem
 
 if not MARKETS:
     st.warning("Aucun marché sélectionné. Active au moins un marché dans la barre latérale.")
     st.stop()
 
+# v7.6: on prend 240j pour avoir MA240 disponibles
 data = fetch_all_markets(MARKETS, days_hist=240)
-
 if data.empty:
     st.warning("Aucune donnée disponible (vérifie la connectivité ou ta sélection de marchés).")
     st.stop()
 
+# Colonnes variat si absentes
 for c in ["pct_1d","pct_7d","pct_30d"]:
     if c not in data.columns:
         data[c] = np.nan
+
+# LT icon (🌱/🌧/⚖️) — robuste même si pas de lt_trend_score
+def _lt_icon(row):
+    ma120 = row.get("MA120", np.nan)
+    ma240 = row.get("MA240", np.nan)
+    if np.isfinite(ma120) and np.isfinite(ma240):
+        if ma120 > ma240: return "🌱"
+        if ma120 < ma240: return "🌧"
+        return "⚖️"
+    # fallback si la lib expose déjà un score LT signé
+    v = row.get("lt_trend_score", np.nan)
+    if np.isfinite(v):
+        return "🌱" if v > 0 else ("🌧" if v < 0 else "⚖️")
+    return "⚪"
+
 valid = data.dropna(subset=["Close"]).copy()
+valid["LT"] = valid.apply(_lt_icon, axis=1)
+
+# IA_Score fallback local si absent (pondère LT > ST)
+if "IA_Score" not in valid.columns:
+    for c in ["trend_score","lt_trend_score","pct_7d","pct_30d","ATR14"]:
+        if c not in valid.columns: valid[c] = np.nan
+    valid["Volatilité"] = valid["ATR14"] / valid["Close"]
+    valid["IA_Score"] = (
+        valid["lt_trend_score"].fillna(0)*60
+        + valid["trend_score"].fillna(0)*40
+        + valid["pct_30d"].fillna(0)*100
+        + valid["pct_7d"].fillna(0)*50
+        - valid["Volatilité"].fillna(0)*10
+    )
 
 # ---------------- Résumé global ----------------
 avg = (valid[value_col].dropna().mean() * 100.0) if not valid.empty else np.nan
@@ -81,14 +112,13 @@ st.subheader(f"🏆 Top 10 hausses & ⛔ Baisses — {periode}")
 
 def prep_table(df, asc=False, n=10):
     if df.empty: return pd.DataFrame()
-    cols = ["Ticker","name","Close", value_col,"Indice","IA_Score","trend_lt"]
+    cols = ["Ticker","name","Close", value_col,"Indice","IA_Score","LT"]
     for c in cols:
         if c not in df.columns: df[c] = np.nan
     out = df.sort_values(value_col, ascending=asc).head(n).copy()
     out.rename(columns={"name":"Société","Close":"Cours (€)"}, inplace=True)
     out["Variation %"] = (out[value_col] * 100).round(2)
     out["Cours (€)"] = out["Cours (€)"].round(2)
-    out["LT"] = out["trend_lt"].apply(lambda v: "🌱" if v > 0 else ("🌧" if v < 0 else "⚖️"))
     return out[["Indice","Société","Ticker","Cours (€)","Variation %","LT","IA_Score"]]
 
 col1, col2 = st.columns(2)
@@ -105,11 +135,15 @@ st.divider()
 
 # ---------------- Sélection IA TOP 10 ----------------
 st.subheader("🚀 Sélection IA — Opportunités idéales (TOP 10)")
+# select_top_actions de la lib v7.6 renvoie déjà :
+# ["Société","Symbole","Cours (€)","Trend ST","Trend LT","Perf 7j (%)",
+#  "Perf 30j (%)","Risque","Score IA","Signal","Entrée (€)","Objectif (€)","Stop (€)","Proximité (%)"]
 top_actions = select_top_actions(valid, profile=profil, n=10, include_proximity=True)
 
 if top_actions.empty:
     st.info("Aucune opportunité claire détectée aujourd’hui selon l’IA.")
 else:
+    # Sécurise la Proximité (%) si l’ancienne lib ne la renvoie pas
     def compute_proximity(row):
         e = row.get("Entrée (€)")
         px = row.get("Cours (€)")
@@ -120,6 +154,7 @@ else:
     if "Proximité (%)" not in top_actions.columns:
         top_actions["Proximité (%)"] = top_actions.apply(compute_proximity, axis=1)
 
+    # Emoji visuel
     def proximity_marker(v):
         if pd.isna(v): return "⚪"
         if abs(v) <= 2: return "🟢"
@@ -127,6 +162,7 @@ else:
         else: return "🔴"
     top_actions["Signal Entrée"] = top_actions["Proximité (%)"].apply(proximity_marker)
 
+    # Moyenne de proximité
     prox_mean = top_actions["Proximité (%)"].dropna().mean()
     if pd.notna(prox_mean):
         emoji = "🟢" if abs(prox_mean) <= 2 else ("⚠️" if abs(prox_mean) <= 5 else "🔴")
@@ -138,6 +174,7 @@ else:
         else:
             st.info("🔴 Marché éloigné des points d’entrée optimaux — patience recommandée.")
 
+    # Styles
     def style_prox(v):
         if pd.isna(v): return ""
         if abs(v) <= 2:  return "background-color:#e8f5e9; color:#0b8043; font-weight:600;"
@@ -146,9 +183,9 @@ else:
 
     def style_decision(val):
         if pd.isna(val): return ""
-        if "Acheter" in val: return "background-color:rgba(0,200,0,0.15); font-weight:600;"
-        if "Éviter" in val:  return "background-color:rgba(255,0,0,0.15); font-weight:600;"
-        if "Surveiller" in val: return "background-color:rgba(0,100,255,0.1); font-weight:600;"
+        if "Acheter" in val:   return "background-color:rgba(0,200,0,0.15); font-weight:600;"
+        if "Éviter" in val:    return "background-color:rgba(255,0,0,0.15); font-weight:600;"
+        if "Surveiller" in val:return "background-color:rgba(0,100,255,0.10); font-weight:600;"
         return ""
 
     styled = (
@@ -156,7 +193,6 @@ else:
         .applymap(style_prox, subset=["Proximité (%)"])
         .applymap(style_decision, subset=["Signal"])
     )
-
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
 st.divider()
@@ -164,10 +200,11 @@ st.divider()
 # ---------------- Charts simples ----------------
 st.markdown("### 📊 Visualisation rapide")
 def bar_chart(df, title):
-    if df.empty: 
-        st.caption("—")
-        return
+    if df.empty:
+        st.caption("—"); return
     d = df.copy()
+    if "Société" not in d.columns and "name" in d.columns:
+        d["Société"] = d["name"]
     d["Label"] = d["Société"].astype(str) + " (" + d["Ticker"].astype(str) + ")"
     chart = (
         alt.Chart(d)
@@ -176,7 +213,7 @@ def bar_chart(df, title):
             x=alt.X("Label:N", sort="-y", title=""),
             y=alt.Y("Variation %:Q", title="Variation (%)"),
             color=alt.Color("Variation %:Q", scale=alt.Scale(scheme="redyellowgreen")),
-            tooltip=["Société","Ticker","Variation %","Cours (€)","Indice","LT","IA_Score"]
+            tooltip=[c for c in ["Société","Ticker","Variation %","Cours (€)","Indice","LT","IA_Score"] if c in d.columns]
         )
         .properties(height=320, title=title)
     )
@@ -189,7 +226,7 @@ with col4: bar_chart(flop, f"Top 10 baisses ({periode})")
 # ---------------- Actualités ----------------
 st.markdown("### 📰 Actualités principales")
 def short_news(row):
-    nm = str(row.get("Société") or "")
+    nm = str(row.get("Société") or row.get("name") or "")
     tk = str(row.get("Ticker") or "")
     txt, score, items = news_summary(nm, tk, lang="fr")
     return txt
