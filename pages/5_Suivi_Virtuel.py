@@ -1,118 +1,177 @@
 # -*- coding: utf-8 -*-
 """
-v7.8 — Suivi Virtuel IA
-- Ajout automatique depuis Synthèse Flash
-- Suppression de lignes
-- Comparatif CAC40
+v2 — Suivi Virtuel IA
+Compatible Synthèse Flash v7.8
+Fonctionnalités :
+- 📊 Lecture du portefeuille virtuel (data/suivi_virtuel.json)
+- 🧮 Calcul P&L%, valeur actuelle estimée
+- 🔁 Suppression de lignes (sélective)
+- 📈 Comparaison avec CAC 40 (indice global)
 """
-import os, json, pandas as pd, numpy as np, streamlit as st, altair as alt
-from lib import fetch_prices, compute_metrics, company_name_from_ticker
 
-st.set_page_config(page_title="Suivi Virtuel", page_icon="💰", layout="wide")
-st.title("💰 Suivi Virtuel — Portefeuille IA (papier trading)")
+import os, json
+import streamlit as st, pandas as pd, numpy as np, altair as alt
+from lib import fetch_all_markets
 
-DATA_PATH = "data/suivi_virtuel.json"
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Suivi Virtuel IA", page_icon="💹", layout="wide")
+st.title("💹 Suivi Virtuel — Portefeuille IA")
+
+save_path = "data/suivi_virtuel.json"
 os.makedirs("data", exist_ok=True)
-BASE_COLUMNS = [
-    "Société","Ticker","Cours (€)","Entrée (€)","Objectif (€)","Stop (€)",
-    "Qté","Montant Initial (€)","Valeur (€)","P&L (%)","Rendement Net Estimé (%)"
-]
-if not os.path.exists(DATA_PATH):
-    pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
+
+# ---------------- CHARGEMENT ----------------
+if not os.path.exists(save_path):
+    json.dump([], open(save_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
 try:
-    pf = pd.read_json(DATA_PATH)
+    pf = pd.read_json(save_path)
 except Exception:
-    pf = pd.DataFrame(columns=BASE_COLUMNS)
-
-# --- Supprimer / vider
-st.subheader("🧹 Gestion du portefeuille virtuel")
-if not pf.empty:
-    choix_supp = st.multiselect("Sélectionne les lignes à supprimer :", pf["Société"].tolist())
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🗑 Supprimer sélection", key="del_rows"):
-            pf = pf[~pf["Société"].isin(choix_supp)]
-            pf.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-            st.success("✅ Lignes supprimées."); st.rerun()
-    with c2:
-        if st.button("♻️ Tout vider", key="wipe_all_rows"):
-            pd.DataFrame(columns=BASE_COLUMNS).to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
-            st.warning("🧹 Portefeuille vidé."); st.rerun()
-
-st.divider()
+    pf = pd.DataFrame()
 
 if pf.empty:
-    st.info("Aucune position virtuelle. Ajoute-en depuis Synthèse Flash.")
+    st.info("Aucune ligne dans le portefeuille virtuel. Ajoute des positions depuis la page *Synthèse Flash IA*.")
     st.stop()
 
-# --- Colonnes manquantes
-for col in BASE_COLUMNS:
-    if col not in pf.columns:
-        pf[col] = np.nan
+# ---------------- MISE EN FORME ----------------
+pf = pf.copy()
+expected_cols = ["Société","Ticker","Entrée (€)","Objectif (€)","Stop (€)","Score IA","Durée visée","Rendement net estimé (%)"]
+for c in expected_cols:
+    if c not in pf.columns:
+        pf[c] = np.nan
 
-if "Ticker" not in pf.columns or pf["Ticker"].dropna().empty:
-    st.info("Aucune ligne valide (Ticker manquant).")
-    st.stop()
+pf["Ticker"] = pf["Ticker"].astype(str)
+pf["Société"] = pf["Société"].astype(str)
 
-tickers = pf["Ticker"].dropna().astype(str).unique().tolist()
-hist = fetch_prices(tickers, days=90)
-met = compute_metrics(hist)
-merged = pf.merge(met, on="Ticker", how="left")
+st.subheader("📘 Portefeuille Virtuel actuel")
 
-rows=[]
-for _, r in merged.iterrows():
-    tkr = r["Ticker"]
-    px = r.get("Close", np.nan)
-    if not np.isfinite(px): continue
-    entry = r.get("Entrée (€)", np.nan)
-    qte = r.get("Qté", 0)
-    init = r.get("Montant Initial (€)", 0)
-    if not np.isfinite(entry) or entry==0: continue
-    soc = r.get("Société") or company_name_from_ticker(tkr)
-    val = px*qte
-    pnl = ((px/entry)-1)*100
-    rend_est = ((r["Objectif (€)"]/entry)-1)*100 - (2/init)*100
-    rows.append({
-        "Société": soc, "Ticker": tkr,
-        "Cours (€)": round(px,2), "Entrée (€)": round(entry,2),
-        "Objectif (€)": round(r["Objectif (€)"],2), "Stop (€)": round(r["Stop (€)"],2),
-        "Qté": round(qte,2), "Montant Initial (€)": round(init,2),
-        "Valeur (€)": round(val,2), "P&L (%)": round(pnl,2), "Rendement Net Estimé (%)": round(rend_est,2)
-    })
+# Simulation du cours actuel (fetch marchés principaux)
+st.caption("Les cours sont actualisés via les marchés sélectionnés (CAC 40 + DAX + NASDAQ + S&P 500).")
 
-out = pd.DataFrame(rows)
-if out.empty:
-    st.info("Aucune donnée actualisée.")
-    st.stop()
+MARKETS = [("CAC 40", None), ("DAX", None), ("NASDAQ 100", None), ("S&P 500", None)]
+data = fetch_all_markets(MARKETS, days_hist=30)
+for c in ["Ticker","Close"]:
+    if c not in data.columns: data[c] = np.nan
 
-# --- Tableau principal
-def color_pnl(v):
+# Cours actuel
+tickers = pf["Ticker"].dropna().unique().tolist()
+current = data[data["Ticker"].isin(tickers)][["Ticker","Close"]].rename(columns={"Close":"Cours actuel (€)"})
+merged = pf.merge(current, on="Ticker", how="left")
+
+# Calculs rendement réel
+merged["Entrée (€)"] = pd.to_numeric(merged["Entrée (€)"], errors="coerce")
+merged["Cours actuel (€)"] = pd.to_numeric(merged["Cours actuel (€)"], errors="coerce")
+
+merged["P&L (%)"] = ((merged["Cours actuel (€)"] - merged["Entrée (€)"]) / merged["Entrée (€)"] * 100).round(2)
+merged["Valeur actuelle (€)"] = (merged["Cours actuel (€)"] / merged["Entrée (€)"] * 20).round(2)  # ticket de 20€ par défaut
+
+# Mise en forme
+cols_display = [
+    "Société","Ticker","Entrée (€)","Cours actuel (€)","Objectif (€)","Stop (€)",
+    "P&L (%)","Score IA","Durée visée","Rendement net estimé (%)"
+]
+
+for c in cols_display:
+    if c not in merged.columns:
+        merged[c] = np.nan
+
+def color_pl(v):
     if pd.isna(v): return ""
-    if v > 0: return "background-color:#e6f4ea; color:#0b8043"
-    if v < 0: return "background-color:#ffebee; color:#b71c1c"
-    return ""
+    if v > 5: return "background-color:#e8f5e9; color:#0b8043; font-weight:600;"
+    if v > 0: return "background-color:#fff8e1; color:#a67c00;"
+    return "background-color:#ffebee; color:#b71c1c;"
 
-st.dataframe(out.style.applymap(color_pnl, subset=["P&L (%)","Rendement Net Estimé (%)"]),
-             use_container_width=True, hide_index=True)
+styled = merged[cols_display].style.applymap(color_pl, subset=["P&L (%)"])
+st.dataframe(styled, use_container_width=True, hide_index=True)
 
-# --- Synthèse
-tot_val = out["Valeur (€)"].sum()
-tot_init = out["Montant Initial (€)"].sum()
-perf = ((tot_val / tot_init) - 1) * 100 if tot_init else 0
-st.markdown(f"""
-### 📊 Synthèse
-**Investi :** {tot_init:.2f} €  
-**Valeur actuelle :** {tot_val:.2f} €  
-**Performance :** {perf:+.2f} %
-""")
+# ---------------- SUPPRESSION ----------------
+st.divider()
+st.subheader("🗑️ Gérer le portefeuille")
 
-# --- Comparatif CAC40
-hist_bmk = fetch_prices(["^FCHI"], days=90)
-if not hist_bmk.empty and "Close" in hist_bmk.columns:
-    df_bmk = hist_bmk.groupby("Date")["Close"].mean().pct_change().cumsum()*100
-    perf_bmk = df_bmk.iloc[-1]
-    diff = perf - perf_bmk
-    if diff > 0:
-        st.success(f"✅ Portefeuille virtuel surperforme le CAC40 de {diff:+.2f}%.")
+merged["Supprimer"] = False
+edited = st.data_editor(
+    merged[["Société","Ticker","Entrée (€)","Objectif (€)","Stop (€)","Supprimer"]],
+    use_container_width=True,
+    hide_index=True,
+    key="delete_editor",
+    num_rows="fixed",
+    column_config={
+        "Supprimer": st.column_config.CheckboxColumn("Supprimer"),
+    },
+)
+
+if st.button("❌ Supprimer les lignes cochées"):
+    to_delete = edited[edited["Supprimer"]==True]
+    if to_delete.empty:
+        st.warning("Aucune ligne cochée à supprimer.")
     else:
-        st.warning(f"⚠️ Portefeuille virtuel sous-performe le CAC40 de {abs(diff):.2f}%.")
+        remaining = pf[~pf["Ticker"].isin(to_delete["Ticker"])]
+        remaining.to_json(save_path, orient="records", indent=2, force_ascii=False)
+        st.success(f"🗑️ {len(to_delete)} ligne(s) supprimée(s). Recharge la page pour voir la mise à jour.")
+
+# ---------------- COMPARAISON CAC 40 ----------------
+st.divider()
+st.subheader("📈 Comparatif performance vs CAC 40")
+
+# Performance portefeuille
+perf_pf = merged["P&L (%)"].mean(skipna=True)
+
+# Performance CAC40
+cac = data[data["Indice"]=="CAC 40"].copy()
+if not cac.empty:
+    cac["Var%"] = (cac["pct_7d"]*100).round(2)
+    perf_cac = cac["Var%"].mean(skipna=True)
+else:
+    perf_cac = np.nan
+
+col1, col2 = st.columns(2)
+with col1:
+    st.metric("Portefeuille IA (moyenne)", f"{perf_pf:+.2f} %", delta=None)
+with col2:
+    if np.isfinite(perf_cac):
+        st.metric("CAC 40 (7 jours)", f"{perf_cac:+.2f} %", delta=perf_pf - perf_cac)
+    else:
+        st.metric("CAC 40 (7 jours)", "N/A")
+
+# ---------------- VISUALISATION ----------------
+st.divider()
+st.subheader("📊 Répartition et P&L")
+
+if merged.empty:
+    st.caption("Aucune donnée à visualiser.")
+else:
+    c1, c2 = st.columns(2)
+    with c1:
+        chart = (
+            alt.Chart(merged)
+            .mark_bar()
+            .encode(
+                x=alt.X("Ticker:N", sort="-y", title="Ticker"),
+                y=alt.Y("P&L (%):Q", title="P&L (%)"),
+                color=alt.condition(
+                    alt.datum["P&L (%)"] > 0,
+                    alt.value("#0b8043"),
+                    alt.value("#c62828")
+                ),
+                tooltip=["Société","Ticker","P&L (%)","Entrée (€)","Cours actuel (€)","Rendement net estimé (%)"]
+            )
+            .properties(height=320, title="Performance par action")
+        )
+        st.altair_chart(chart, use_container_width=True)
+
+    with c2:
+        pie_data = merged.groupby(pd.cut(merged["P&L (%)"], bins=[-999,-5,0,5,999])).size().reset_index(name="count")
+        pie_data["category"] = pie_data["P&L (%)"].astype(str)
+        chart2 = (
+            alt.Chart(pie_data)
+            .mark_arc()
+            .encode(
+                theta="count",
+                color="category",
+                tooltip=["category","count"]
+            )
+            .properties(title="Répartition des gains / pertes")
+        )
+        st.altair_chart(chart2, use_container_width=True)
+
+st.caption("💡 Tu peux gérer ici ton portefeuille virtuel et comparer tes performances à celles du CAC 40.")
