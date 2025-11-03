@@ -51,8 +51,8 @@
   {
     "Ticker": "NATO.MI",
     "Type": "CTO",
-    "Qty": 2.524205,
-    "PRU": 15.85,
+    "Qty": 6.070383,
+    "PRU": 16.64,
     "Name": "Future of Defence UCITS ETF"
   },
   {
@@ -140,7 +140,7 @@
     "Name": "TAKE-TWO INTERACTIVE SOFTW.INCR"
   },
   {
-    "Ticker": "IOC.SG",
+    "Ticker": "IOC.F",
     "Type": "CTO",
     "Qty": 0.10040099999999999,
     "PRU": 49.8,
