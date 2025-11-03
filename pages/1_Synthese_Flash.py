@@ -177,7 +177,7 @@ st.subheader("💸 Injection IA — Simulateur micro-investissement")
 
 st.caption("Analyse IA pour des tickets 7–30 jours avec frais inclus (1€ entrée + 1€ sortie).")
 
-invest_amount = st.number_input("💰 Montant d’investissement par action (€)", min_value=5.0, max_value=500.0, step=5.0, value=20.0)
+invest_amount = st.number_input("💰 Montant d’investissement par action (€)", min_value=5.0, max_value=500.0, step=5.0, value=40.0)
 fee_in = 1.0
 fee_out = 1.0
 
