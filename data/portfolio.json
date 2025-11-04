@@ -30,8 +30,8 @@
   {
     "Ticker": "DFNS.MI",
     "Type": "CTO",
-    "Qty": 1.184092,
-    "PRU": 50.67,
+    "Qty": 1.3837329999999999,
+    "PRU": 51.4,
     "Name": "DEFENCE USD "
   },
   {
@@ -65,8 +65,8 @@
   {
     "Ticker": "MWRD.MI",
     "Type": "CTO",
-    "Qty": 0.7867419999999999,
-    "PRU": 139.66,
+    "Qty": 0.8649749999999999,
+    "PRU": 138.59,
     "Name": "MSCI World "
   },
   {
@@ -105,24 +105,17 @@
     "Name": "Apple Inc.                    R"
   },
   {
-    "Ticker": "PLUN.F",
-    "Type": "CTO",
-    "Qty": 8.710801,
-    "PRU": 3.44,
-    "Name": "Plug Power Inc.               R"
-  },
-  {
     "Ticker": "L0CK.DE",
     "Type": "CTO",
-    "Qty": 2.318587,
-    "PRU": 8.63,
+    "Qty": 3.408267,
+    "PRU": 8.8,
     "Name": "Digital Security UC.ETFR"
   },
   {
     "Ticker": "EGLN.L",
     "Type": "CTO",
-    "Qty": 0.311815,
-    "PRU": 62.06,
+    "Qty": 0.415524,
+    "PRU": 63.41,
     "Name": "PHYSICAL GOLD"
   },
   {
@@ -138,20 +131,6 @@
     "Qty": 0.081741,
     "PRU": 207.97,
     "Name": "TAKE-TWO INTERACTIVE SOFTW.INCR"
-  },
-  {
-    "Ticker": "IOC.F",
-    "Type": "CTO",
-    "Qty": 0.10040099999999999,
-    "PRU": 49.8,
-    "Name": "Itochu Corp."
-  },
-  {
-    "Ticker": "18P0.DU",
-    "Type": "CTO",
-    "Qty": 2.6666600000000003,
-    "PRU": 1.5,
-    "Name": "Electra Battery Materials CorpR"
   },
   {
     "Ticker": "SON1.F",
@@ -171,7 +150,14 @@
     "Ticker": "MT.AS",
     "Type": "CTO",
     "Qty": 1.203369,
-    "PRU": 34.07,
+    "PRU": 33.24,
     "Name": "ARCELORMITTAL SA"
+  },
+  {
+    "Ticker": "NVD.DE",
+    "Type": "CTO",
+    "Qty": 0.277346,
+    "PRU": 183.89,
+    "Name": "NVD.DE"
   }
 ]
