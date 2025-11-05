@@ -97,6 +97,8 @@ if st.button("💾 Enregistrer Modifs"):
     edited["Ticker"] = edited["Ticker"].str.upper()
     edited.to_json(DATA_PATH, orient="records", indent=2, force_ascii=False)
     st.rerun()
+if st.button("🔄 Rafraîchir"):
+        st.cache_data.clear(); st.rerun()
 
 if edited.empty:
     st.info("Ajoute des actions pour commencer."); st.stop()
