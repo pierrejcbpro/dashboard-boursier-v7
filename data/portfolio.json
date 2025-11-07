@@ -30,7 +30,7 @@
   {
     "Ticker": "DFNS.MI",
     "Type": "CTO",
-    "Qty": 1.3837329999999999,
+    "Qty": 1.383732999999999,
     "PRU": 51.4,
     "Name": "DEFENCE USD "
   },
@@ -58,14 +58,14 @@
   {
     "Ticker": "MWRD.MI",
     "Type": "CTO",
-    "Qty": 0.8649749999999999,
+    "Qty": 0.864974999999999,
     "PRU": 138.59,
     "Name": "MSCI World "
   },
   {
     "Ticker": "TKMS.DE",
     "Type": "CTO",
-    "Qty": 0.37133299999999997,
+    "Qty": 0.371332999999999,
     "PRU": 80.9,
     "Name": "TKMS AG & Co. KGaA            I"
   },
@@ -135,7 +135,7 @@
   {
     "Ticker": "8BZ.F",
     "Type": "CTO",
-    "Qty": 0.08620599999999999,
+    "Qty": 0.086205999999999,
     "PRU": 20.18,
     "Name": "Sony Financial Group Inc.     R"
   },
