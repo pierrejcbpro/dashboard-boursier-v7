@@ -241,6 +241,8 @@ for _, r in merged.iterrows():
         "Type": r["Type"],
         "Décision IA": dec,
         "🎯 Priorité": priority,
+        "Proximité (%)": round(prox,2) if np.isfinite(prox) else None,
+        "Signal Entrée": emoji,
         "Cours (€)": round(px,2) if np.isfinite(px) else None,
         "Qté": qty,
         "PRU (€)": round(pru,2) if np.isfinite(pru) else None,
@@ -250,8 +252,6 @@ for _, r in merged.iterrows():
         "Entrée (€)": entry,
         "Objectif (€)": target,
         "Stop (€)": stop,
-        "Proximité (%)": round(prox,2) if np.isfinite(prox) else None,
-        "Signal Entrée": emoji,
         "Tendance LT": trend_icon
     })
 
