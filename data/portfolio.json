@@ -1,12 +1,5 @@
 [
   {
-    "Ticker": "SAN.PA",
-    "Type": "PEA",
-    "Qty": 1.0,
-    "PRU": 80.08,
-    "Name": "SANOFI"
-  },
-  {
     "Ticker": "TTE.PA",
     "Type": "PEA",
     "Qty": 1.0,
@@ -30,7 +23,7 @@
   {
     "Ticker": "DFNS.MI",
     "Type": "CTO",
-    "Qty": 1.383732999999999,
+    "Qty": 1.3837329999999999,
     "PRU": 51.4,
     "Name": "DEFENCE USD "
   },
@@ -51,21 +44,21 @@
   {
     "Ticker": "NATO.MI",
     "Type": "CTO",
-    "Qty": 6.070383,
+    "Qty": 6.197179,
     "PRU": 16.64,
     "Name": "Future of Defence UCITS ETF"
   },
   {
     "Ticker": "MWRD.MI",
     "Type": "CTO",
-    "Qty": 0.864974999999999,
+    "Qty": 0.8649749999999999,
     "PRU": 138.59,
     "Name": "MSCI World "
   },
   {
     "Ticker": "TKMS.DE",
     "Type": "CTO",
-    "Qty": 0.371332999999999,
+    "Qty": 0.37133299999999997,
     "PRU": 80.9,
     "Name": "TKMS AG & Co. KGaA            I"
   },
@@ -135,7 +128,7 @@
   {
     "Ticker": "8BZ.F",
     "Type": "CTO",
-    "Qty": 0.086205999999999,
+    "Qty": 0.08620599999999999,
     "PRU": 20.18,
     "Name": "Sony Financial Group Inc.     R"
   },
@@ -152,5 +145,12 @@
     "Qty": 0.730189,
     "PRU": 173.91,
     "Name": "NVD.DE"
+  },
+  {
+    "Ticker": "SGO.PA",
+    "Type": "PEA",
+    "Qty": 1.0,
+    "PRU": 85.12,
+    "Name": "SAINT GOBAIN"
   }
 ]
