@@ -7,13 +7,6 @@
     "Name": "TOTALENERGIES"
   },
   {
-    "Ticker": "EDEN.PA",
-    "Type": "PEA",
-    "Qty": 2.0,
-    "PRU": 25.66,
-    "Name": "EDENRED"
-  },
-  {
     "Ticker": "PRP.F",
     "Type": "PEA",
     "Qty": 5.0,
@@ -72,8 +65,8 @@
   {
     "Ticker": "PINR.PA",
     "Type": "CTO",
-    "Qty": 1.017687,
-    "PRU": 24.57,
+    "Qty": 1.212885,
+    "PRU": 24.73,
     "Name": "MSCI India"
   },
   {
