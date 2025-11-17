@@ -145,5 +145,12 @@
     "Qty": 1.0,
     "PRU": 85.12,
     "Name": "SAINT GOBAIN"
+  },
+  {
+    "Ticker": "AOR.MU",
+    "Type": "PEA",
+    "Qty": 2.0,
+    "PRU": 17.98,
+    "Name": "Solaria Energia Y Medio Ambi. A"
   }
 ]
