@@ -147,10 +147,17 @@
     "Name": "SAINT GOBAIN"
   },
   {
-    "Ticker": "AOR.MU",
+    "Ticker": "NBTX",
     "Type": "PEA",
     "Qty": 2.0,
-    "PRU": 17.98,
-    "Name": "Solaria Energia Y Medio Ambi. A"
+    "PRU": 18.74,
+    "Name": "Nanobiotix S.A."
+  },
+  {
+    "Ticker": "EXA.PA",
+    "Type": "PEA",
+    "Qty": 1.0,
+    "PRU": 83.42,
+    "Name": "EXAIL TECHNOLOGIES"
   }
 ]
