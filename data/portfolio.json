@@ -70,13 +70,6 @@
     "Name": "MSCI India"
   },
   {
-    "Ticker": "MC.PA",
-    "Type": "CTO",
-    "Qty": 0.038624,
-    "PRU": 517.29,
-    "Name": "LVMH"
-  },
-  {
     "Ticker": "APC.DE",
     "Type": "CTO",
     "Qty": 0.100836,
