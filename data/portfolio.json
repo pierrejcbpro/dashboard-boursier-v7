@@ -70,13 +70,6 @@
     "Name": "MSCI India"
   },
   {
-    "Ticker": "APC.DE",
-    "Type": "CTO",
-    "Qty": 0.100836,
-    "PRU": 198.34,
-    "Name": "Apple Inc.                    R"
-  },
-  {
     "Ticker": "L0CK.DE",
     "Type": "CTO",
     "Qty": 3.408267,
@@ -119,25 +112,11 @@
     "Name": "Sony Financial Group Inc.     R"
   },
   {
-    "Ticker": "MT.AS",
-    "Type": "CTO",
-    "Qty": 1.203369,
-    "PRU": 33.24,
-    "Name": "ARCELORMITTAL SA"
-  },
-  {
     "Ticker": "NVD.DE",
     "Type": "CTO",
     "Qty": 0.730189,
     "PRU": 173.91,
     "Name": "NVD.DE"
-  },
-  {
-    "Ticker": "SGO.PA",
-    "Type": "PEA",
-    "Qty": 1.0,
-    "PRU": 85.12,
-    "Name": "SAINT GOBAIN"
   },
   {
     "Ticker": "NBTX",
@@ -152,5 +131,12 @@
     "Qty": 1.0,
     "PRU": 83.42,
     "Name": "EXAIL TECHNOLOGIES"
+  },
+  {
+    "Ticker": "MBG.DE",
+    "Type": "PEA",
+    "Qty": 1.0,
+    "PRU": 58.14,
+    "Name": "Mercedes-Benz Group AG        N"
   }
 ]
