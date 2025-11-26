@@ -56,13 +56,6 @@
     "Name": "TKMS AG & Co. KGaA            I"
   },
   {
-    "Ticker": "DJ5.F",
-    "Type": "CTO",
-    "Qty": 95.846645,
-    "PRU": 0.313,
-    "Name": "Surge Battery Metals Inc.     R"
-  },
-  {
     "Ticker": "PINR.PA",
     "Type": "CTO",
     "Qty": 1.212885,
@@ -138,5 +131,12 @@
     "Qty": 1.0,
     "PRU": 58.14,
     "Name": "Mercedes-Benz Group AG        N"
+  },
+  {
+    "Ticker": "AXA.DE",
+    "Type": "PEA",
+    "Qty": 1.0,
+    "PRU": 38.67,
+    "Name": "AXA.DE"
   }
 ]
