@@ -138,5 +138,12 @@
     "Qty": 1.0,
     "PRU": 38.67,
     "Name": "AXA.DE"
+  },
+  {
+    "Ticker": "AIL.DE",
+    "Type": "PEA",
+    "Qty": 1.0,
+    "PRU": 166.79,
+    "Name": "AIL.DE"
   }
 ]
