@@ -364,79 +364,72 @@ st.markdown(f"""
 st.divider()
 
 # ==============================
-# BENCHMARK : Total + PEA + CTO (3 messages) — ROBUSTE
+# BENCHMARK : Total + PEA + CTO (3 messages)
 # ==============================
 st.subheader(f"📈 Portefeuille vs {bench_name} ({periode})")
 
-# On repart des Yahoo normalisés pour éviter les échecs
-yahoo_list = out["Yahoo"].dropna().astype(str).unique().tolist()
-if not yahoo_list:
-    st.caption("Aucun symbole Yahoo valide pour tracer le benchmark."); 
+hist_graph = fetch_prices(tickers + [bench], days=days)
+if hist_graph.empty or "Date" not in hist_graph.columns:
+    st.caption("Pas assez d'historique.")
 else:
-    hist_graph = fetch_prices(yahoo_list + [bench], days=days)
-    if hist_graph.empty or "Date" not in hist_graph.columns:
-        st.caption("Pas assez d'historique.")
+    df_val = []
+    for _, r in edited.iterrows():
+        tkr, q, tp = r["Ticker"], r["Qty"], r["Type"]
+        d = hist_graph[hist_graph["Ticker"] == tkr].copy()
+        if d.empty: continue
+        d["Valeur"] = d["Close"] * q
+        d["Type"] = tp  # PEA / CTO
+        df_val.append(d[["Date","Valeur","Type"]])
+
+    if df_val:
+        D = pd.concat(df_val)
+        agg = D.groupby(["Date","Type"]).agg({"Valeur":"sum"}).reset_index()  # PEA / CTO
+        tot = agg.groupby("Date")["Valeur"].sum().reset_index().assign(Type="Total")  # TOTAL
+
+        bmk = hist_graph[hist_graph["Ticker"] == bench].copy()
+        base_val = float(tot["Valeur"].iloc[0]) if not tot.empty else 1.0
+        bmk = bmk.assign(Type=bench_name, Valeur=bmk["Close"] / bmk["Close"].iloc[0] * base_val)
+
+        full = pd.concat([agg, tot, bmk])
+        base = full.groupby("Type").apply(
+            lambda g: g.assign(Pct=(g["Valeur"]/g["Valeur"].iloc[0]-1)*100)
+        ).reset_index(drop=True)
+
+        # Helpers
+        def perf_of(t):
+            try:
+                return float(base[base["Type"]==t]["Pct"].iloc[-1])
+            except Exception:
+                return np.nan
+
+        perf_total = perf_of("Total")
+        perf_pea   = perf_of("PEA")
+        perf_cto   = perf_of("CTO")
+        perf_bmk   = perf_of(bench_name)
+
+        def compare_msg(name, perf):
+            if np.isnan(perf) or np.isnan(perf_bmk):
+                return ""
+            diff = perf - perf_bmk
+            if diff > 0:
+                return f"✅ **{name} surperforme** {bench_name} de **{diff:+.2f}%**."
+            else:
+                return f"⚠️ **{name} sous-performe** {bench_name} de **{abs(diff):.2f}%**."
+
+        st.markdown(compare_msg("Portefeuille TOTAL", perf_total))
+        st.markdown(compare_msg("PEA", perf_pea))
+        st.markdown(compare_msg("CTO", perf_cto))
+
+        # Graphique
+        chart = alt.Chart(base).mark_line().encode(
+            x="Date:T",
+            y=alt.Y("Pct:Q", title="Variation (%)"),
+            color=alt.Color("Type:N", title=""),
+            tooltip=["Date:T","Type:N","Pct:Q"]
+        ).properties(height=380)
+        st.altair_chart(chart, use_container_width=True)
     else:
-        df_val = []
-        # On relit edited (tickers d'origine) + leur Yahoo mappé
-        ed2 = edited.merge(out[["Ticker","Yahoo"]].drop_duplicates(), on="Ticker", how="left")
-        for _, r in ed2.iterrows():
-            y, q, tp = r.get("Yahoo"), r.get("Qty"), r.get("Type")
-            if not isinstance(y, str) or not y:
-                continue
-            d = hist_graph[hist_graph["Ticker"] == y].copy()
-            if d.empty: 
-                continue
-            d["Valeur"] = d["Close"] * float(q or 0.0)
-            d["Type"] = tp  # PEA / CTO
-            df_val.append(d[["Date","Valeur","Type"]])
-
-        if df_val:
-            D = pd.concat(df_val)
-            agg = D.groupby(["Date","Type"]).agg({"Valeur":"sum"}).reset_index()  # PEA / CTO
-            tot = agg.groupby("Date")["Valeur"].sum().reset_index().assign(Type="Total")  # TOTAL
-
-            bmk = hist_graph[hist_graph["Ticker"] == bench].copy()
-            base_val = float(tot["Valeur"].iloc[0]) if not tot.empty else 1.0
-            bmk = bmk.assign(Type=bench_name, Valeur=bmk["Close"] / bmk["Close"].iloc[0] * base_val)
-
-            full = pd.concat([agg, tot, bmk])
-            base = full.groupby("Type").apply(
-                lambda g: g.assign(Pct=(g["Valeur"]/g["Valeur"].iloc[0]-1)*100)
-            ).reset_index(drop=True)
-
-            def perf_of(t):
-                try:
-                    return float(base[base["Type"]==t]["Pct"].iloc[-1])
-                except Exception:
-                    return np.nan
-
-            perf_total = perf_of("Total")
-            perf_pea   = perf_of("PEA")
-            perf_cto   = perf_of("CTO")
-            perf_bmk   = perf_of(bench_name)
-
-            def compare_msg(name, perf):
-                if np.isnan(perf) or np.isnan(perf_bmk):
-                    return ""
-                diff = perf - perf_bmk
-                return (f"✅ **{name} surperforme** {bench_name} de **{diff:+.2f}%**."
-                        if diff > 0 else
-                        f"⚠️ **{name} sous-performe** {bench_name} de **{abs(diff):.2f}%**.")
-
-            st.markdown(compare_msg("Portefeuille TOTAL", perf_total))
-            st.markdown(compare_msg("PEA", perf_pea))
-            st.markdown(compare_msg("CTO", perf_cto))
-
-            chart = alt.Chart(base).mark_line().encode(
-                x="Date:T",
-                y=alt.Y("Pct:Q", title="Variation (%)"),
-                color=alt.Color("Type:N", title=""),
-                tooltip=["Date:T","Type:N","Pct:Q"]
-            ).properties(height=380)
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.caption("Portefeuille vide côté historique (quantités = 0 ?).")
+        st.caption("Portefeuille vide côté historique (quantités = 0 ?).")
 
 
 st.divider()
