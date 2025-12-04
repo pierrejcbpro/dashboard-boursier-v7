@@ -260,8 +260,7 @@ for _, r in merged.iterrows():
 
     # LT trend (MA120 vs MA240)
     ma120, ma240 = float(r.get("MA120", np.nan)), float(r.get("MA240", np.nan))
-    trend_icon = "🌱" if (np.isfinite(ma120) and np.isfinite(ma240) and ma120 > ma240) else \
-                 ("🌧" if (np.isfinite(ma120) and np.isfinite(ma240) and ma120 < ma240) else "⚖️")
+    trend_icon = "🌱" if ma120 > ma240 else ("🌧" if ma120 < ma240 else "⚖️")
 
     # Proximité d'entrée + emoji
     entry, target, stop = levels["entry"], levels["target"], levels["stop"]
