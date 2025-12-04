@@ -192,40 +192,83 @@ if edited.empty:
     st.info("Ajoute des actions pour commencer."); st.stop()
 
 # ==============================
-# ANALYSE IA (strict) + METRICS
+# ANALYSE IA (strict) + METRICS  — ROBUSTE
 # ==============================
-tickers = edited["Ticker"].dropna().unique().tolist()
+
+# 1) Nettoyage des lignes “vides” (Ticker vide) pour éviter les fetch foireux
+edited = edited.copy()
+edited["Ticker"] = edited["Ticker"].astype(str).str.strip()
+edited = edited[edited["Ticker"] != ""]  # retire les tickers vides
+if edited.empty:
+    st.info("Aucun ticker valide dans le portefeuille (colonnes vides)."); st.stop()
+
+# 2) Normalisation vers Yahoo (ex: AIR -> AIR.PA, codes LS -> heuristique)
+def _norm_yahoo(t):
+    try:
+        y = maybe_guess_yahoo(t)
+        return y if (isinstance(y, str) and y.strip()) else None
+    except Exception:
+        return None
+
+edited["Yahoo"] = edited["Ticker"].apply(_norm_yahoo)
+
+# 3) Liste finale de tickers Yahoo valides
+tickers_map = dict(zip(edited["Ticker"], edited["Yahoo"]))
+bad = [k for k, v in tickers_map.items() if not v]
+if bad:
+    st.warning("Tickers non reconnus (à corriger ou mapper LS→Yahoo) : " + ", ".join(bad))
+tickers = [v for v in tickers_map.values() if v]
+
+if not tickers:
+    st.error("Aucun ticker Yahoo valide après normalisation."); st.stop()
+
+# 4) Téléchargement robuste (240j pour LT)
 hist_full = fetch_prices(tickers, days=240)
-met = compute_metrics(hist_full)
-merged = edited.merge(met, on="Ticker", how="left")
+if hist_full.empty:
+    st.error("Téléchargement des prix vide. Vérifie la connectivité et/ou les tickers."); st.stop()
+
+# 5) Calcul métriques sur ces tickers Yahoo
+met = compute_metrics(hist_full)  # renvoie colonne 'Ticker' (Yahoo)
+if met.empty:
+    st.error("Métriques vides après téléchargement. Possible blocage Yahoo temporaire."); st.stop()
+
+# 6) Merge en respectant “Yahoo” (à gauche) vs “Ticker” (dans met)
+merged = edited.merge(met, left_on="Yahoo", right_on="Ticker", how="left", suffixes=("", "_px"))
 
 profil = load_profile()
 volmax = get_profile_params(profil)["vol_max"]
 
 rows = []
 for _, r in merged.iterrows():
-    px = float(r.get("Close", np.nan))
-    qty = float(r.get("Qty", 0))
-    pru = float(r.get("PRU", np.nan))
-    name = r.get("Name") or company_name_from_ticker(r.get("Ticker"))
+    # r["Ticker"] (à droite) = Yahoo ; r["Ticker_x"] = original si suffixe a été ajouté par merge
+    tkr_orig = r.get("Ticker_x") if "Ticker_x" in r else r.get("Ticker")
+    if pd.isna(tkr_orig): tkr_orig = r.get("Yahoo")  # fallback
+    tkr_orig = str(tkr_orig)
 
+    name = r.get("Name") or company_name_from_ticker(r.get("Yahoo"))
+    px   = float(r.get("Close", np.nan))
+    qty  = float(r.get("Qty", 0))
+    pru  = float(r.get("PRU", np.nan))
+
+    # Niveaux IA (utilise les colonnes de met déjà fusionnées dans r)
     levels = price_levels_from_row(r, profil)
-    dec = decision_label_from_row(r, held=True, vol_max=volmax)
+    dec    = decision_label_from_row(r, held=True, vol_max=volmax)
 
-    val = px * qty if np.isfinite(px) else np.nan
-    gain = (px - pru) * qty if np.isfinite(px) and np.isfinite(pru) else np.nan
-    perf = ((px/pru)-1)*100 if (np.isfinite(px) and np.isfinite(pru) and pru > 0) else np.nan
+    val  = px * qty if np.isfinite(px) else np.nan
+    gain = (px - pru) * qty if (np.isfinite(px) and np.isfinite(pru)) else np.nan
+    perf = ((px/pru)-1)*100 if (np.isfinite(px) and np.isfinite(pru) and pru>0) else np.nan
 
     # LT trend (MA120 vs MA240)
     ma120, ma240 = float(r.get("MA120", np.nan)), float(r.get("MA240", np.nan))
-    trend_icon = "🌱" if ma120 > ma240 else ("🌧" if ma120 < ma240 else "⚖️")
+    trend_icon = "🌱" if (np.isfinite(ma120) and np.isfinite(ma240) and ma120 > ma240) else \
+                 ("🌧" if (np.isfinite(ma120) and np.isfinite(ma240) and ma120 < ma240) else "⚖️")
 
     # Proximité d'entrée + emoji
-    entry = levels["entry"]; target = levels["target"]; stop = levels["stop"]
+    entry, target, stop = levels["entry"], levels["target"], levels["stop"]
     prox = ((px/entry)-1)*100 if (np.isfinite(px) and np.isfinite(entry) and entry>0) else np.nan
     emoji = "🟢" if pd.notna(prox) and abs(prox)<=2 else ("⚠️" if pd.notna(prox) and abs(prox)<=5 else "🔴")
 
-    # 🎯 Priorité d'action (simple et lisible)
+    # 🎯 Priorité d'action
     if np.isfinite(px) and np.isfinite(target) and px >= target:
         priority = "🎯 Vendre"
     elif np.isfinite(perf) and perf > 12 and trend_icon != "🌱":
@@ -237,8 +280,9 @@ for _, r in merged.iterrows():
 
     rows.append({
         "Nom": name,
-        "Ticker": r["Ticker"],
-        "Type": r["Type"],
+        "Ticker": tkr_orig,        # ← on réaffiche le ticker “comme saisi”
+        "Yahoo": r.get("Yahoo"),   # ← utile pour debug/benchmark
+        "Type": r.get("Type"),
         "Décision IA": dec,
         "🎯 Priorité": priority,
         "Cours (€)": round(px,2) if np.isfinite(px) else None,
@@ -256,6 +300,7 @@ for _, r in merged.iterrows():
     })
 
 out = pd.DataFrame(rows)
+
 
 # ==============================
 # STYLES SÛRS
@@ -319,72 +364,80 @@ st.markdown(f"""
 st.divider()
 
 # ==============================
-# BENCHMARK : Total + PEA + CTO (3 messages)
+# BENCHMARK : Total + PEA + CTO (3 messages) — ROBUSTE
 # ==============================
 st.subheader(f"📈 Portefeuille vs {bench_name} ({periode})")
 
-hist_graph = fetch_prices(tickers + [bench], days=days)
-if hist_graph.empty or "Date" not in hist_graph.columns:
-    st.caption("Pas assez d'historique.")
+# On repart des Yahoo normalisés pour éviter les échecs
+yahoo_list = out["Yahoo"].dropna().astype(str).unique().tolist()
+if not yahoo_list:
+    st.caption("Aucun symbole Yahoo valide pour tracer le benchmark."); 
 else:
-    df_val = []
-    for _, r in edited.iterrows():
-        tkr, q, tp = r["Ticker"], r["Qty"], r["Type"]
-        d = hist_graph[hist_graph["Ticker"] == tkr].copy()
-        if d.empty: continue
-        d["Valeur"] = d["Close"] * q
-        d["Type"] = tp  # PEA / CTO
-        df_val.append(d[["Date","Valeur","Type"]])
-
-    if df_val:
-        D = pd.concat(df_val)
-        agg = D.groupby(["Date","Type"]).agg({"Valeur":"sum"}).reset_index()  # PEA / CTO
-        tot = agg.groupby("Date")["Valeur"].sum().reset_index().assign(Type="Total")  # TOTAL
-
-        bmk = hist_graph[hist_graph["Ticker"] == bench].copy()
-        base_val = float(tot["Valeur"].iloc[0]) if not tot.empty else 1.0
-        bmk = bmk.assign(Type=bench_name, Valeur=bmk["Close"] / bmk["Close"].iloc[0] * base_val)
-
-        full = pd.concat([agg, tot, bmk])
-        base = full.groupby("Type").apply(
-            lambda g: g.assign(Pct=(g["Valeur"]/g["Valeur"].iloc[0]-1)*100)
-        ).reset_index(drop=True)
-
-        # Helpers
-        def perf_of(t):
-            try:
-                return float(base[base["Type"]==t]["Pct"].iloc[-1])
-            except Exception:
-                return np.nan
-
-        perf_total = perf_of("Total")
-        perf_pea   = perf_of("PEA")
-        perf_cto   = perf_of("CTO")
-        perf_bmk   = perf_of(bench_name)
-
-        def compare_msg(name, perf):
-            if np.isnan(perf) or np.isnan(perf_bmk):
-                return ""
-            diff = perf - perf_bmk
-            if diff > 0:
-                return f"✅ **{name} surperforme** {bench_name} de **{diff:+.2f}%**."
-            else:
-                return f"⚠️ **{name} sous-performe** {bench_name} de **{abs(diff):.2f}%**."
-
-        st.markdown(compare_msg("Portefeuille TOTAL", perf_total))
-        st.markdown(compare_msg("PEA", perf_pea))
-        st.markdown(compare_msg("CTO", perf_cto))
-
-        # Graphique
-        chart = alt.Chart(base).mark_line().encode(
-            x="Date:T",
-            y=alt.Y("Pct:Q", title="Variation (%)"),
-            color=alt.Color("Type:N", title=""),
-            tooltip=["Date:T","Type:N","Pct:Q"]
-        ).properties(height=380)
-        st.altair_chart(chart, use_container_width=True)
+    hist_graph = fetch_prices(yahoo_list + [bench], days=days)
+    if hist_graph.empty or "Date" not in hist_graph.columns:
+        st.caption("Pas assez d'historique.")
     else:
-        st.caption("Portefeuille vide côté historique (quantités = 0 ?).")
+        df_val = []
+        # On relit edited (tickers d'origine) + leur Yahoo mappé
+        ed2 = edited.merge(out[["Ticker","Yahoo"]].drop_duplicates(), on="Ticker", how="left")
+        for _, r in ed2.iterrows():
+            y, q, tp = r.get("Yahoo"), r.get("Qty"), r.get("Type")
+            if not isinstance(y, str) or not y:
+                continue
+            d = hist_graph[hist_graph["Ticker"] == y].copy()
+            if d.empty: 
+                continue
+            d["Valeur"] = d["Close"] * float(q or 0.0)
+            d["Type"] = tp  # PEA / CTO
+            df_val.append(d[["Date","Valeur","Type"]])
+
+        if df_val:
+            D = pd.concat(df_val)
+            agg = D.groupby(["Date","Type"]).agg({"Valeur":"sum"}).reset_index()  # PEA / CTO
+            tot = agg.groupby("Date")["Valeur"].sum().reset_index().assign(Type="Total")  # TOTAL
+
+            bmk = hist_graph[hist_graph["Ticker"] == bench].copy()
+            base_val = float(tot["Valeur"].iloc[0]) if not tot.empty else 1.0
+            bmk = bmk.assign(Type=bench_name, Valeur=bmk["Close"] / bmk["Close"].iloc[0] * base_val)
+
+            full = pd.concat([agg, tot, bmk])
+            base = full.groupby("Type").apply(
+                lambda g: g.assign(Pct=(g["Valeur"]/g["Valeur"].iloc[0]-1)*100)
+            ).reset_index(drop=True)
+
+            def perf_of(t):
+                try:
+                    return float(base[base["Type"]==t]["Pct"].iloc[-1])
+                except Exception:
+                    return np.nan
+
+            perf_total = perf_of("Total")
+            perf_pea   = perf_of("PEA")
+            perf_cto   = perf_of("CTO")
+            perf_bmk   = perf_of(bench_name)
+
+            def compare_msg(name, perf):
+                if np.isnan(perf) or np.isnan(perf_bmk):
+                    return ""
+                diff = perf - perf_bmk
+                return (f"✅ **{name} surperforme** {bench_name} de **{diff:+.2f}%**."
+                        if diff > 0 else
+                        f"⚠️ **{name} sous-performe** {bench_name} de **{abs(diff):.2f}%**.")
+
+            st.markdown(compare_msg("Portefeuille TOTAL", perf_total))
+            st.markdown(compare_msg("PEA", perf_pea))
+            st.markdown(compare_msg("CTO", perf_cto))
+
+            chart = alt.Chart(base).mark_line().encode(
+                x="Date:T",
+                y=alt.Y("Pct:Q", title="Variation (%)"),
+                color=alt.Color("Type:N", title=""),
+                tooltip=["Date:T","Type:N","Pct:Q"]
+            ).properties(height=380)
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.caption("Portefeuille vide côté historique (quantités = 0 ?).")
+
 
 st.divider()
 
