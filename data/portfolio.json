@@ -23,8 +23,8 @@
   {
     "Ticker": "EUDF.DE",
     "Type": "CTO",
-    "Qty": 2.338898,
-    "PRU": 33.27,
+    "Qty": 2.0,
+    "PRU": 33.91,
     "Name": "EUROPE DEFENCE"
   },
   {
@@ -37,15 +37,15 @@
   {
     "Ticker": "NATO.MI",
     "Type": "CTO",
-    "Qty": 6.8573319999999995,
-    "PRU": 16.35,
+    "Qty": 6.197179,
+    "PRU": 16.64,
     "Name": "Future of Defence UCITS ETF"
   },
   {
     "Ticker": "MWRD.MI",
     "Type": "CTO",
-    "Qty": 0.944067,
-    "PRU": 138.69,
+    "Qty": 0.8649749999999999,
+    "PRU": 138.59,
     "Name": "MSCI World "
   },
   {
@@ -65,15 +65,15 @@
   {
     "Ticker": "L0CK.DE",
     "Type": "CTO",
-    "Qty": 4.566076,
-    "PRU": 8.76,
+    "Qty": 3.408267,
+    "PRU": 8.8,
     "Name": "Digital Security UC.ETFR"
   },
   {
     "Ticker": "EGLN.L",
     "Type": "CTO",
-    "Qty": 0.501091,
-    "PRU": 64.56,
+    "Qty": 0.415524,
+    "PRU": 63.41,
     "Name": "PHYSICAL GOLD"
   },
   {
@@ -87,7 +87,7 @@
     "Ticker": "TKE.DE",
     "Type": "CTO",
     "Qty": 0.806005,
-    "PRU": 209.69,
+    "PRU": 213.41,
     "Name": "TAKE-TWO INTERACTIVE SOFTW.INCR"
   },
   {
@@ -144,6 +144,6 @@
     "Type": "PEA",
     "Qty": 1.0,
     "PRU": 166.79,
-    "Name": "AIRLIQUID"
+    "Name": "AIL.DE"
   }
 ]
