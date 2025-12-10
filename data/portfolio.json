@@ -16,8 +16,8 @@
   {
     "Ticker": "DFNS.MI",
     "Type": "CTO",
-    "Qty": 1.3837329999999999,
-    "PRU": 51.4,
+    "Qty": 1.585528,
+    "PRU": 51.17,
     "Name": "DEFENCE USD "
   },
   {
@@ -51,15 +51,15 @@
   {
     "Ticker": "TKMS.DE",
     "Type": "CTO",
-    "Qty": 0.37133299999999997,
-    "PRU": 80.9,
+    "Qty": 0.9096909999999999,
+    "PRU": 78.09,
     "Name": "TKMS AG & Co. KGaA            I"
   },
   {
     "Ticker": "PINR.PA",
     "Type": "CTO",
     "Qty": 1.212885,
-    "PRU": 24.73,
+    "PRU": 24.74,
     "Name": "MSCI India"
   },
   {
@@ -79,8 +79,8 @@
   {
     "Ticker": "DN3.F",
     "Type": "CTO",
-    "Qty": 6.792452,
-    "PRU": 2.65,
+    "Qty": 24.413597,
+    "PRU": 2.42,
     "Name": "Metaplanet Inc.               R"
   },
   {
@@ -94,21 +94,21 @@
     "Ticker": "SON1.F",
     "Type": "CTO",
     "Qty": 2.537186,
-    "PRU": 24.17,
+    "PRU": 23.77,
     "Name": "Sony Group Corp.              R"
   },
   {
     "Ticker": "8BZ.F",
     "Type": "CTO",
     "Qty": 33.794071,
-    "PRU": 0.9688,
+    "PRU": 0.9392,
     "Name": "Sony Financial Group Inc.     R"
   },
   {
     "Ticker": "NVD.DE",
     "Type": "CTO",
-    "Qty": 0.730189,
-    "PRU": 173.91,
+    "Qty": 0.730789,
+    "PRU": 171.17,
     "Name": "NVD.DE"
   },
   {
