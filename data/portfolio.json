@@ -23,8 +23,8 @@
   {
     "Ticker": "EUDF.DE",
     "Type": "CTO",
-    "Qty": 2.338898,
-    "PRU": 33.27,
+    "Qty": 2.51406,
+    "PRU": 32.94,
     "Name": "EUROPE DEFENCE"
   },
   {
@@ -58,8 +58,8 @@
   {
     "Ticker": "PINR.PA",
     "Type": "CTO",
-    "Qty": 1.212885,
-    "PRU": 24.74,
+    "Qty": 1.4183919999999999,
+    "PRU": 24.68,
     "Name": "MSCI India"
   },
   {
@@ -84,7 +84,7 @@
     "Name": "Metaplanet Inc.               R"
   },
   {
-    "Ticker": "TKE.DE",
+    "Ticker": "TKE.F",
     "Type": "CTO",
     "Qty": 0.806005,
     "PRU": 209.69,
@@ -107,12 +107,12 @@
   {
     "Ticker": "NVD.DE",
     "Type": "CTO",
-    "Qty": 0.730789,
-    "PRU": 171.17,
+    "Qty": 1.629213,
+    "PRU": 160.81,
     "Name": "NVD.DE"
   },
   {
-    "Ticker": "NBTX",
+    "Ticker": "NANO.PA",
     "Type": "PEA",
     "Qty": 2.0,
     "PRU": 18.74,
